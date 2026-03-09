@@ -10,7 +10,7 @@ A native macOS client for [Bluesky](https://bsky.social), built with SwiftUI and
 - **Post Composition** — Write new posts with image attachments and alt text
 - **Replies, Likes, Reposts** — Interact with posts directly from the timeline
 - **Session Persistence** — Credentials stored in Keychain; sessions restore automatically on launch
-- **Native macOS UI** — NavigationSplitView, keyboard shortcuts, pull-to-refresh
+- **Native macOS UI** — NavigationSplitView, keyboard shortcuts.
 
 ## Installation
 
