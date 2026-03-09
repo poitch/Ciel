@@ -1,17 +1,15 @@
-//
-//  CielApp.swift
-//  Ciel
-//
-//  Created by Jerome Poichet on 3/9/26.
-//
-
 import SwiftUI
 
 @main
 struct CielApp: App {
+    @State private var appState = AppState()
+
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .environment(appState)
         }
+        .windowStyle(.automatic)
+        .defaultSize(width: 900, height: 700)
     }
 }

@@ -1,24 +1,28 @@
-//
-//  ContentView.swift
-//  Ciel
-//
-//  Created by Jerome Poichet on 3/9/26.
-//
-
 import SwiftUI
 
 struct ContentView: View {
-    var body: some View {
-        VStack {
-            Image(systemName: "globe")
-                .imageScale(.large)
-                .foregroundStyle(.tint)
-            Text("Hello, world!")
-        }
-        .padding()
-    }
-}
+    @Environment(AppState.self) private var appState
 
-#Preview {
-    ContentView()
+    var body: some View {
+        Group {
+            if appState.isRestoringSession {
+                VStack(spacing: 16) {
+                    ProgressView()
+                        .controlSize(.large)
+                    Text("Signing in...")
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if appState.isAuthenticated {
+                MainView()
+            } else {
+                LoginView()
+            }
+        }
+        .task {
+            if !appState.isAuthenticated {
+                await appState.restoreSession()
+            }
+        }
+    }
 }

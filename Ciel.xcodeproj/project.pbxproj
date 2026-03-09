@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		02B208702F5F724800FB6170 /* ATProtoKit in Frameworks */ = {isa = PBXBuildFile; productRef = 02B2086F2F5F724800FB6170 /* ATProtoKit */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		021868292F5F478800A7AABA /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -52,6 +56,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				02B208702F5F724800FB6170 /* ATProtoKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -112,6 +117,7 @@
 			);
 			name = Ciel;
 			packageProductDependencies = (
+				02B2086F2F5F724800FB6170 /* ATProtoKit */,
 			);
 			productName = Ciel;
 			productReference = 0218681B2F5F478700A7AABA /* Ciel.app */;
@@ -195,6 +201,9 @@
 			);
 			mainGroup = 021868122F5F478700A7AABA;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				02B2086E2F5F724800FB6170 /* XCRemoteSwiftPackageReference "ATProtoKit" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 0218681C2F5F478700A7AABA /* Products */;
 			projectDirPath = "";
@@ -394,6 +403,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Ciel/Ciel.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
@@ -426,6 +436,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Ciel/Ciel.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
@@ -573,6 +584,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		02B2086E2F5F724800FB6170 /* XCRemoteSwiftPackageReference "ATProtoKit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/MasterJ93/ATProtoKit.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.32.5;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		02B2086F2F5F724800FB6170 /* ATProtoKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 02B2086E2F5F724800FB6170 /* XCRemoteSwiftPackageReference "ATProtoKit" */;
+			productName = ATProtoKit;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 021868132F5F478700A7AABA /* Project object */;
 }
