@@ -28,7 +28,7 @@ struct FeedView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {
-                        ForEach(Array(appState.posts.enumerated()), id: \.offset) { index, feedPost in
+                        ForEach(Array(zip(appState.posts.indices, appState.posts)), id: \.1.post.uri) { index, feedPost in
                             PostRowView(feedPost: feedPost)
 
                             Divider()
@@ -47,6 +47,9 @@ struct FeedView: View {
                                 .padding()
                         }
                     }
+                }
+                .refreshable {
+                    await appState.loadFeed()
                 }
             }
         }

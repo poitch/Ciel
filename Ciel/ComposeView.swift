@@ -42,8 +42,8 @@ struct ComposeView: View {
 
             Divider()
 
-            if let target = appState.replyTarget {
-                replyContext(target)
+            if let context = appState.replyContext {
+                replyContext(context.target)
                 Divider()
             }
 

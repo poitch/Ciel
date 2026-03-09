@@ -170,7 +170,7 @@ struct PostRowView: View {
 
     private var actionBar: some View {
         HStack(spacing: 24) {
-            Button(action: { appState.reply(to: post) }) {
+            Button(action: { appState.reply(to: post, feedPost: feedPost) }) {
                 Label(formatCount(post.replyCount), systemImage: "bubble.right")
             }
             .buttonStyle(.plain)
@@ -206,6 +206,12 @@ struct PostRowView: View {
         return "\(count)"
     }
 
+    private static let olderDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d"
+        return formatter
+    }()
+
     private func relativeTime(_ date: Date) -> String {
         let now = Date()
         let interval = now.timeIntervalSince(date)
@@ -215,8 +221,6 @@ struct PostRowView: View {
         if interval < 86400 { return "\(Int(interval / 3600))h" }
         if interval < 604800 { return "\(Int(interval / 86400))d" }
 
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MMM d"
-        return formatter.string(from: date)
+        return Self.olderDateFormatter.string(from: date)
     }
 }

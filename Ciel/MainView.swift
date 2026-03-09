@@ -56,7 +56,7 @@ struct MainView: View {
         .toolbar {
             ToolbarItem(placement: .automatic) {
                 Button(action: {
-                    appState.replyTarget = nil
+                    appState.replyContext = nil
                     appState.showCompose = true
                 }) {
                     Image(systemName: "square.and.pencil")

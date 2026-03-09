@@ -28,6 +28,7 @@ enum FeedTab: Hashable {
     }
 }
 
+@MainActor
 @Observable
 final class AppState {
     var isAuthenticated = false
@@ -53,7 +54,12 @@ final class AppState {
     var isLoadingSuggestedFeeds = false
 
     var showCompose = false
-    var replyTarget: AppBskyLexicon.Feed.PostViewDefinition?
+    var replyContext: ReplyContext?
+
+    struct ReplyContext {
+        let target: AppBskyLexicon.Feed.PostViewDefinition
+        let rootRef: ComAtprotoLexicon.Repository.StrongReference?
+    }
 
     // MARK: - Session Persistence Keys
 
@@ -236,11 +242,14 @@ final class AppState {
                 }
             }
 
-            if !feedURIs.isEmpty {
+            if feedURIs.isEmpty {
+                savedFeeds = []
+            } else {
                 let generators = try await kit.getFeedGenerators(by: feedURIs)
                 savedFeeds = generators.feeds
             }
         } catch {
+            savedFeeds = []
             print("Failed to load saved feeds: \(error)")
         }
 
@@ -304,8 +313,15 @@ final class AppState {
         }
     }
 
-    func reply(to post: AppBskyLexicon.Feed.PostViewDefinition) {
-        replyTarget = post
+    func reply(to post: AppBskyLexicon.Feed.PostViewDefinition, feedPost: AppBskyLexicon.Feed.FeedViewPostDefinition? = nil) {
+        var rootRef: ComAtprotoLexicon.Repository.StrongReference?
+        if let reply = feedPost?.reply, case .postView(let rootPost) = reply.root {
+            rootRef = ComAtprotoLexicon.Repository.StrongReference(
+                recordURI: rootPost.uri,
+                cidHash: rootPost.cid
+            )
+        }
+        replyContext = ReplyContext(target: post, rootRef: rootRef)
         showCompose = true
     }
 
@@ -325,13 +341,13 @@ final class AppState {
         }
 
         var replyRef: AppBskyLexicon.Feed.PostRecord.ReplyReference?
-        if let target = replyTarget {
+        if let context = replyContext {
             let parentRef = ComAtprotoLexicon.Repository.StrongReference(
-                recordURI: target.uri,
-                cidHash: target.cid
+                recordURI: context.target.uri,
+                cidHash: context.target.cid
             )
             replyRef = AppBskyLexicon.Feed.PostRecord.ReplyReference(
-                root: parentRef,
+                root: context.rootRef ?? parentRef,
                 parent: parentRef
             )
         }
@@ -342,7 +358,7 @@ final class AppState {
             embed: embed
         )
 
-        replyTarget = nil
+        replyContext = nil
         showCompose = false
         await loadFeed()
     }
