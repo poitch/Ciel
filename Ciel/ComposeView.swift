@@ -1,5 +1,6 @@
 import SwiftUI
 import PhotosUI
+import UniformTypeIdentifiers
 import ATProtoKit
 
 struct ComposeView: View {
@@ -61,7 +62,14 @@ struct ComposeView: View {
 
             HStack {
                 PhotosPicker(selection: $selectedPhoto, matching: .images) {
-                    Label("Photo", systemImage: "photo")
+                    Label("Photos", systemImage: "photo")
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    pickImageFromFilesystem()
+                } label: {
+                    Label("Browse", systemImage: "folder")
                 }
                 .buttonStyle(.plain)
 
@@ -90,8 +98,7 @@ struct ComposeView: View {
         .onChange(of: selectedPhoto) { _, newValue in
             Task {
                 if let data = try? await newValue?.loadTransferable(type: Data.self) {
-                    imageData = data
-                    previewImage = NSImage(data: data)
+                    loadImage(data: data)
                 }
             }
         }
@@ -134,6 +141,23 @@ struct ComposeView: View {
         }
         .padding(.horizontal)
         .padding(.bottom, 8)
+    }
+
+    private func loadImage(data: Data) {
+        imageData = data
+        previewImage = NSImage(data: data)
+    }
+
+    private func pickImageFromFilesystem() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.image]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        if panel.runModal() == .OK, let url = panel.url,
+           let data = try? Data(contentsOf: url) {
+            loadImage(data: data)
+            selectedPhoto = nil
+        }
     }
 
     private func post() async {
