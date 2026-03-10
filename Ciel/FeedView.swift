@@ -29,7 +29,13 @@ struct FeedView: View {
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         ForEach(Array(zip(appState.posts.indices, appState.posts)), id: \.1.post.uri) { index, feedPost in
-                            PostRowView(feedPost: feedPost)
+                            if let reply = feedPost.reply,
+                               case .postView(let parent) = reply.parent {
+                                PostRowView(post: parent, showThreadLineBelow: true)
+                                PostRowView(feedPost: feedPost, showThreadLineAbove: true)
+                            } else {
+                                PostRowView(feedPost: feedPost)
+                            }
 
                             Divider()
 

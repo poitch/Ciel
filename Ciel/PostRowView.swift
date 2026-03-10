@@ -3,25 +3,40 @@ import ATProtoKit
 
 struct PostRowView: View {
     @Environment(AppState.self) private var appState
-    let feedPost: AppBskyLexicon.Feed.FeedViewPostDefinition
+    private let feedPost: AppBskyLexicon.Feed.FeedViewPostDefinition?
+    private let _post: AppBskyLexicon.Feed.PostViewDefinition
+    var showThreadLineAbove = false
+    var showThreadLineBelow = false
 
-    private var post: AppBskyLexicon.Feed.PostViewDefinition {
-        feedPost.post
+    init(feedPost: AppBskyLexicon.Feed.FeedViewPostDefinition, showThreadLineAbove: Bool = false, showThreadLineBelow: Bool = false) {
+        self.feedPost = feedPost
+        self._post = feedPost.post
+        self.showThreadLineAbove = showThreadLineAbove
+        self.showThreadLineBelow = showThreadLineBelow
     }
+
+    init(post: AppBskyLexicon.Feed.PostViewDefinition, showThreadLineAbove: Bool = false, showThreadLineBelow: Bool = false) {
+        self.feedPost = nil
+        self._post = post
+        self.showThreadLineAbove = showThreadLineAbove
+        self.showThreadLineBelow = showThreadLineBelow
+    }
+
+    private var post: AppBskyLexicon.Feed.PostViewDefinition { _post }
 
     private var postRecord: AppBskyLexicon.Feed.PostRecord? {
         post.record.getRecord(ofType: AppBskyLexicon.Feed.PostRecord.self)
     }
 
     private var repostBy: String? {
-        if case .reasonRepost(let reason) = feedPost.reason {
+        if case .reasonRepost(let reason) = feedPost?.reason {
             return reason.by.displayName ?? reason.by.actorHandle
         }
         return nil
     }
 
     private var replyParentAuthor: String? {
-        if let reply = feedPost.reply {
+        if let reply = feedPost?.reply {
             if case .postView(let parent) = reply.parent {
                 return parent.author.displayName ?? parent.author.actorHandle
             }
@@ -42,7 +57,7 @@ struct PostRowView: View {
                 .padding(.leading, 52)
             }
 
-            if let replyParentAuthor {
+            if !showThreadLineAbove, let replyParentAuthor {
                 HStack(spacing: 4) {
                     Image(systemName: "arrowshape.turn.up.left")
                         .font(.caption)
@@ -54,33 +69,43 @@ struct PostRowView: View {
             }
 
             HStack(alignment: .top, spacing: 12) {
-                AsyncImage(url: post.author.avatarImageURL) { image in
-                    image.resizable()
-                        .aspectRatio(contentMode: .fill)
-                } placeholder: {
-                    Circle()
-                        .fill(.quaternary)
+                Button { appState.viewProfile(did: post.author.actorDID) } label: {
+                    AsyncImage(url: post.author.avatarImageURL) { image in
+                        image.resizable()
+                            .aspectRatio(contentMode: .fill)
+                    } placeholder: {
+                        Circle()
+                            .fill(.quaternary)
+                    }
+                    .frame(width: 40, height: 40)
+                    .clipShape(Circle())
                 }
-                .frame(width: 40, height: 40)
-                .clipShape(Circle())
+                .buttonStyle(.plain)
 
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 4) {
-                        if let displayName = post.author.displayName, !displayName.isEmpty {
-                            Text(displayName)
-                                .fontWeight(.semibold)
-                                .lineLimit(1)
-                        }
+                        Button { appState.viewProfile(did: post.author.actorDID) } label: {
+                            HStack(spacing: 4) {
+                                if let displayName = post.author.displayName, !displayName.isEmpty {
+                                    Text(displayName)
+                                        .fontWeight(.semibold)
+                                        .lineLimit(1)
+                                }
 
-                        Text("@\(post.author.actorHandle)")
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
+                                Text("@\(post.author.actorHandle)")
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                        }
+                        .buttonStyle(.plain)
 
                         Spacer()
 
-                        Text(relativeTime(post.indexedAt))
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
+                        TimelineView(.periodic(from: .now, by: 30)) { _ in
+                            Text(relativeTime(post.indexedAt))
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
                     }
 
                     if let record = postRecord {
@@ -98,6 +123,42 @@ struct PostRowView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .contentShape(Rectangle())
+        .overlay {
+            if showThreadLineAbove || showThreadLineBelow {
+                GeometryReader { geo in
+                    let x = Self.threadLineX
+                    let avatarCenterY: CGFloat = threadAvatarCenterY
+
+                    Path { path in
+                        if showThreadLineAbove {
+                            path.move(to: CGPoint(x: x, y: 0))
+                            path.addLine(to: CGPoint(x: x, y: avatarCenterY))
+                        }
+                        if showThreadLineBelow {
+                            path.move(to: CGPoint(x: x, y: avatarCenterY))
+                            path.addLine(to: CGPoint(x: x, y: geo.size.height))
+                        }
+                    }
+                    .stroke(Color.secondary.opacity(0.3), lineWidth: 2)
+                }
+                .allowsHitTesting(false)
+            }
+        }
+    }
+
+    // MARK: - Thread Line
+
+    private static let avatarSize: CGFloat = 40
+    private static let horizontalPadding: CGFloat = 16
+    private static let verticalPadding: CGFloat = 10
+    private static let indicatorHeight: CGFloat = 22
+    private static let threadLineX: CGFloat = horizontalPadding + avatarSize / 2
+
+    private var threadAvatarCenterY: CGFloat {
+        var y = Self.verticalPadding
+        if repostBy != nil { y += Self.indicatorHeight }
+        if !showThreadLineAbove, replyParentAuthor != nil { y += Self.indicatorHeight }
+        return y + Self.avatarSize / 2
     }
 
     // MARK: - Embeds

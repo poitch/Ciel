@@ -17,10 +17,11 @@ struct MainView: View {
                     }
                 }
             )) {
-                Section("Feeds") {
-                    Label("Following", systemImage: "person.2")
-                        .tag(FeedTab.following)
-                }
+                Label("Profile", systemImage: "person.circle")
+                    .tag(FeedTab.profile)
+
+                Label("Following", systemImage: "person.2")
+                    .tag(FeedTab.following)
 
                 if !appState.savedFeeds.isEmpty {
                     Section("My Feeds") {
@@ -51,7 +52,16 @@ struct MainView: View {
             .listStyle(.sidebar)
             .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 300)
         } detail: {
-            FeedView()
+            let isShowingProfile = appState.selectedTab == .profile
+            ZStack {
+                FeedView()
+                    .opacity(isShowingProfile ? 0 : 1)
+                    .allowsHitTesting(!isShowingProfile)
+
+                if isShowingProfile {
+                    ProfileView()
+                }
+            }
         }
         .toolbar {
             ToolbarItem(placement: .automatic) {
@@ -67,7 +77,13 @@ struct MainView: View {
 
             ToolbarItem(placement: .automatic) {
                 Button(action: {
-                    Task { await appState.loadFeed() }
+                    Task {
+                        if appState.selectedTab == .profile {
+                            await appState.loadProfile()
+                        } else {
+                            await appState.loadFeed()
+                        }
+                    }
                 }) {
                     Image(systemName: "arrow.clockwise")
                 }

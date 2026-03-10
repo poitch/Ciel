@@ -2,11 +2,13 @@ import SwiftUI
 import ATProtoKit
 
 enum FeedTab: Hashable {
+    case profile
     case following
     case custom(uri: String, name: String)
 
     static func == (lhs: FeedTab, rhs: FeedTab) -> Bool {
         switch (lhs, rhs) {
+        case (.profile, .profile): return true
         case (.following, .following): return true
         case (.custom(let a, _), .custom(let b, _)): return a == b
         default: return false
@@ -15,6 +17,7 @@ enum FeedTab: Hashable {
 
     func hash(into hasher: inout Hasher) {
         switch self {
+        case .profile: hasher.combine("profile")
         case .following: hasher.combine("following")
         case .custom(let uri, _): hasher.combine(uri)
         }
@@ -22,6 +25,7 @@ enum FeedTab: Hashable {
 
     var displayName: String {
         switch self {
+        case .profile: return "Profile"
         case .following: return "Following"
         case .custom(_, let name): return name
         }
@@ -55,6 +59,13 @@ final class AppState {
 
     var showCompose = false
     var replyContext: ReplyContext?
+
+    var profile: AppBskyLexicon.Actor.ProfileViewDetailedDefinition?
+    var profilePosts: [AppBskyLexicon.Feed.FeedViewPostDefinition] = []
+    var profileCursor: String?
+    var isLoadingProfile = false
+    var viewingProfileDID: String?
+    var previousTab: FeedTab?
 
     struct ReplyContext {
         let target: AppBskyLexicon.Feed.PostViewDefinition
@@ -167,8 +178,18 @@ final class AppState {
         cursor = nil
         savedFeeds = []
         suggestedFeeds = []
+        resetProfileState()
         selectedTab = .following
         clearStoredSession()
+    }
+
+    private func resetProfileState() {
+        profile = nil
+        profilePosts = []
+        profileCursor = nil
+        isLoadingProfile = false
+        viewingProfileDID = nil
+        previousTab = nil
     }
 
     private func clearStoredSession() {
@@ -180,7 +201,7 @@ final class AppState {
     // MARK: - Feed Loading
 
     func loadFeed(loadMore: Bool = false) async {
-        guard let kit = atProtoKit else { return }
+        guard let kit = atProtoKit, selectedTab != .profile else { return }
         if isLoadingFeed { return }
 
         isLoadingFeed = true
@@ -207,6 +228,9 @@ final class AppState {
                     posts = result.feed
                 }
                 cursor = result.cursor
+
+            case .profile:
+                break
             }
         } catch {
             feedError = error.localizedDescription
@@ -217,9 +241,31 @@ final class AppState {
 
     func switchTab(_ tab: FeedTab) async {
         selectedTab = tab
-        posts = []
-        cursor = nil
-        await loadFeed()
+        if case .profile = tab {
+            resetProfileState()
+            await loadProfile()
+        } else {
+            posts = []
+            cursor = nil
+            await loadFeed()
+        }
+    }
+
+    func viewProfile(did: String) {
+        let from = selectedTab
+        let savedPreviousTab = previousTab
+        resetProfileState()
+        previousTab = from == .profile ? savedPreviousTab : from
+        viewingProfileDID = did
+        selectedTab = .profile
+        Task { await loadProfile() }
+    }
+
+    func goBack() {
+        guard let tab = previousTab else { return }
+        previousTab = nil
+        viewingProfileDID = nil
+        selectedTab = tab
     }
 
     // MARK: - Saved Feeds
@@ -269,6 +315,49 @@ final class AppState {
         }
 
         isLoadingSuggestedFeeds = false
+    }
+
+    // MARK: - Profile
+
+    func loadProfile(loadMore: Bool = false) async {
+        guard let kit = atProtoKit else { return }
+        let did = viewingProfileDID ?? sessionDID
+        guard let did else { return }
+        if loadMore && profileCursor == nil { return }
+        if isLoadingProfile { return }
+
+        isLoadingProfile = true
+
+        do {
+            let feedCursor = loadMore ? profileCursor : nil
+
+            if profile == nil {
+                async let profileTask = kit.getProfile(for: did)
+                async let feedTask = kit.getAuthorFeed(
+                    by: did, limit: 50, cursor: feedCursor,
+                    postFilter: .postsWithNoReplies
+                )
+                profile = try await profileTask
+                let result = try await feedTask
+                profilePosts = result.feed
+                profileCursor = result.cursor
+            } else {
+                let result = try await kit.getAuthorFeed(
+                    by: did, limit: 50, cursor: feedCursor,
+                    postFilter: .postsWithNoReplies
+                )
+                if loadMore {
+                    profilePosts.append(contentsOf: result.feed)
+                } else {
+                    profilePosts = result.feed
+                }
+                profileCursor = result.cursor
+            }
+        } catch {
+            print("Failed to load profile: \(error)")
+        }
+
+        isLoadingProfile = false
     }
 
     // MARK: - Post Actions
