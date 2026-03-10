@@ -81,7 +81,11 @@ final class AppState {
     var profileCursor: String?
     var isLoadingProfile = false
     var viewingProfileDID: String?
-    var navigationStack: [FeedTab] = []
+    struct NavigationEntry {
+        let tab: FeedTab
+        let profileDID: String?
+    }
+    var navigationStack: [NavigationEntry] = []
 
     var notifications: [AppBskyLexicon.Notification.Notification] = []
     var notificationsCursor: String?
@@ -96,7 +100,8 @@ final class AppState {
     // Tracks local like/repost state overrides before the server catches up
     var likeOverrides: [String: String?] = [:]    // uri -> likeURI (nil = unliked)
     var repostOverrides: [String: String?] = [:]  // uri -> repostURI (nil = unreposted)
-    var likeCountAdjustments: [String: Int] = [:] // uri -> delta
+    var likeCountAdjustments: [String: Int] = [:]   // uri -> delta
+    var repostCountAdjustments: [String: Int] = [:] // uri -> delta
 
     struct ReplyContext {
         let target: AppBskyLexicon.Feed.PostViewDefinition
@@ -222,6 +227,7 @@ final class AppState {
         likeOverrides = [:]
         repostOverrides = [:]
         likeCountAdjustments = [:]
+        repostCountAdjustments = [:]
         selectedTab = .following
         clearStoredSession()
     }
@@ -300,7 +306,7 @@ final class AppState {
     }
 
     func viewProfile(did: String) {
-        navigationStack.append(selectedTab)
+        navigationStack.append(NavigationEntry(tab: selectedTab, profileDID: viewingProfileDID))
         resetProfileState()
         viewingProfileDID = did
         selectedTab = .profile
@@ -308,9 +314,14 @@ final class AppState {
     }
 
     func goBack() {
-        guard let tab = navigationStack.popLast() else { return }
-        selectedTab = tab
-        if tab != .profile {
+        guard let entry = navigationStack.popLast() else { return }
+        selectedTab = entry.tab
+        if entry.tab == .profile {
+            viewingProfileDID = entry.profileDID
+            resetProfileState()
+            viewingProfileDID = entry.profileDID
+            Task { await loadProfile() }
+        } else {
             viewingProfileDID = nil
         }
     }
@@ -440,7 +451,7 @@ final class AppState {
 
     func viewThread(uri: String) {
         if case .thread(let currentURI) = selectedTab, currentURI == uri { return }
-        navigationStack.append(selectedTab)
+        navigationStack.append(NavigationEntry(tab: selectedTab, profileDID: viewingProfileDID))
         threadParents = []
         threadPost = nil
         threadReplies = []
@@ -505,8 +516,9 @@ final class AppState {
 
     // MARK: - Post Actions
 
-    func toggleLike(post: AppBskyLexicon.Feed.PostViewDefinition) async {
-        guard let bluesky = atProtoBluesky else { return }
+    @discardableResult
+    func toggleLike(post: AppBskyLexicon.Feed.PostViewDefinition) async -> Bool {
+        guard let bluesky = atProtoBluesky else { return false }
 
         let wasLiked = isLiked(post)
         let likeURI = likeOverrides[post.uri] ?? post.viewer?.likeURI
@@ -525,8 +537,10 @@ final class AppState {
                 likeOverrides[post.uri] = result.recordURI
                 likeCountAdjustments[post.uri, default: 0] += 1
             }
+            return true
         } catch {
             print("Like action failed: \(error)")
+            return false
         }
     }
 
@@ -540,6 +554,7 @@ final class AppState {
             if wasReposted, let repostURI {
                 try await bluesky.deleteRecord(.recordURI(atURI: repostURI))
                 repostOverrides[post.uri] = .some(nil)
+                repostCountAdjustments[post.uri, default: 0] -= 1
             } else {
                 let ref = ComAtprotoLexicon.Repository.StrongReference(
                     recordURI: post.uri,
@@ -547,6 +562,7 @@ final class AppState {
                 )
                 let result = try await bluesky.createRepostRecord(ref)
                 repostOverrides[post.uri] = result.recordURI
+                repostCountAdjustments[post.uri, default: 0] += 1
             }
         } catch {
             print("Repost action failed: \(error)")
@@ -561,11 +577,13 @@ final class AppState {
                 cidHash: rootPost.cid
             )
         }
+        quoteTarget = nil
         replyContext = ReplyContext(target: post, rootRef: rootRef)
         showCompose = true
     }
 
     func quotePost(_ post: AppBskyLexicon.Feed.PostViewDefinition) {
+        replyContext = nil
         quoteTarget = post
         showCompose = true
     }
@@ -634,5 +652,10 @@ final class AppState {
             return override != nil
         }
         return post.viewer?.repostURI != nil
+    }
+
+    func repostCount(_ post: AppBskyLexicon.Feed.PostViewDefinition) -> Int? {
+        guard let base = post.repostCount else { return nil }
+        return base + (repostCountAdjustments[post.uri] ?? 0)
     }
 }

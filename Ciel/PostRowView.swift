@@ -269,7 +269,7 @@ struct PostRowView: View {
                     Label("Quote Post", systemImage: "quote.opening")
                 }
             } label: {
-                Label(formatCount(post.repostCount), systemImage: "arrow.2.squarepath")
+                Label(formatCount(appState.repostCount(post)), systemImage: "arrow.2.squarepath")
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
@@ -278,13 +278,15 @@ struct PostRowView: View {
 
             Button {
                 Task {
-                    await appState.toggleLike(post: post)
-                    withAnimation(.spring(response: 0.25, dampingFraction: 0.4)) {
-                        likeAnimating = true
-                    }
-                    try? await Task.sleep(for: .milliseconds(300))
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
-                        likeAnimating = false
+                    let success = await appState.toggleLike(post: post)
+                    if success {
+                        withAnimation(.spring(response: 0.25, dampingFraction: 0.4)) {
+                            likeAnimating = true
+                        }
+                        try? await Task.sleep(for: .milliseconds(300))
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+                            likeAnimating = false
+                        }
                     }
                 }
             } label: {
