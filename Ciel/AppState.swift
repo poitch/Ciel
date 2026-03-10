@@ -65,6 +65,7 @@ final class AppState {
     var cursor: String?
     var isLoadingFeed = false
     var feedError: String?
+    var lastSeenPostURI: String?
 
     var savedFeeds: [AppBskyLexicon.Feed.GeneratorViewDefinition] = []
     var isLoadingSavedFeeds = false
@@ -90,6 +91,8 @@ final class AppState {
     var notifications: [AppBskyLexicon.Notification.Notification] = []
     var notificationsCursor: String?
     var isLoadingNotifications = false
+    var unreadNotificationCount: Int = 0
+    private var notificationPollTask: Task<Void, Never>?
 
     var threadParents: [AppBskyLexicon.Feed.PostViewDefinition] = []
     var threadPost: AppBskyLexicon.Feed.PostViewDefinition?
@@ -146,6 +149,8 @@ final class AppState {
             await loadFeed()
             await loadSavedFeeds()
             await loadSuggestedFeeds()
+            await fetchUnreadCount()
+            startNotificationPolling()
         } catch {
             loginError = error.localizedDescription
         }
@@ -185,6 +190,8 @@ final class AppState {
             await loadFeed()
             await loadSavedFeeds()
             await loadSuggestedFeeds()
+            await fetchUnreadCount()
+            startNotificationPolling()
         } catch {
             // Password not in keychain or auth failed — user needs to log in again
             clearStoredSession()
@@ -194,6 +201,12 @@ final class AppState {
     }
 
     func logout() {
+        notificationPollTask?.cancel()
+        notificationPollTask = nil
+        unreadNotificationCount = 0
+        lastSeenPostURI = nil
+        NSApplication.shared.dockTile.badgeLabel = nil
+
         // Clean up keychain credentials
         if let uuidString = UserDefaults.standard.string(forKey: Self.keychainUUIDKey),
            let uuid = UUID(uuidString: uuidString) {
@@ -255,6 +268,19 @@ final class AppState {
         isLoadingFeed = true
         feedError = nil
 
+        // Remember the top post so we can show an "unread" marker after refresh
+        if !loadMore, let topURI = posts.first?.post.uri {
+            lastSeenPostURI = topURI
+        }
+
+        // Clear optimistic overrides on full refresh — new posts carry fresh viewer state
+        if !loadMore {
+            likeOverrides.removeAll()
+            repostOverrides.removeAll()
+            likeCountAdjustments.removeAll()
+            repostCountAdjustments.removeAll()
+        }
+
         do {
             let feedCursor = loadMore ? cursor : nil
 
@@ -298,9 +324,11 @@ final class AppState {
             notifications = []
             notificationsCursor = nil
             await loadNotifications()
+            await markNotificationsSeen()
         default:
             posts = []
             cursor = nil
+            lastSeenPostURI = nil
             await loadFeed()
         }
     }
@@ -445,6 +473,39 @@ final class AppState {
         }
 
         isLoadingNotifications = false
+    }
+
+    func fetchUnreadCount() async {
+        guard let kit = atProtoKit else { return }
+        do {
+            let result = try await kit.getUnreadCount(priority: nil)
+            unreadNotificationCount = result.count
+            NSApplication.shared.dockTile.badgeLabel = result.count > 0 ? "\(result.count)" : nil
+        } catch {
+            print("Failed to fetch unread count: \(error)")
+        }
+    }
+
+    func markNotificationsSeen() async {
+        guard let kit = atProtoKit else { return }
+        do {
+            try await kit.updateSeen()
+            unreadNotificationCount = 0
+            NSApplication.shared.dockTile.badgeLabel = nil
+        } catch {
+            print("Failed to mark notifications seen: \(error)")
+        }
+    }
+
+    private func startNotificationPolling() {
+        notificationPollTask?.cancel()
+        notificationPollTask = Task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(30))
+                guard !Task.isCancelled else { break }
+                await fetchUnreadCount()
+            }
+        }
     }
 
     // MARK: - Thread

@@ -28,8 +28,19 @@ struct MainView: View {
                 Label("Following", systemImage: "person.2")
                     .tag(FeedTab.following)
 
-                Label("Notifications", systemImage: "bell")
-                    .tag(FeedTab.notifications)
+                HStack {
+                    Label("Notifications", systemImage: "bell")
+                    Spacer()
+                    if appState.unreadNotificationCount > 0 {
+                        Text("\(appState.unreadNotificationCount)")
+                            .font(.caption2.weight(.bold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.red, in: Capsule())
+                    }
+                }
+                .tag(FeedTab.notifications)
 
                 if !appState.savedFeeds.isEmpty {
                     Section("My Feeds") {
@@ -100,6 +111,7 @@ struct MainView: View {
                             await appState.loadProfile()
                         case .notifications:
                             await appState.loadNotifications()
+                            await appState.markNotificationsSeen()
                         case .thread(let uri):
                             await appState.loadThread(uri: uri)
                         default:
