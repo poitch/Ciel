@@ -1,6 +1,85 @@
 import SwiftUI
 import ATProtoKit
 
+struct UnreadMarker: View {
+    var body: some View {
+        VStack(spacing: 0) {
+            ZigzagEdge()
+                .fill(Color.accentColor.opacity(0.08))
+                .frame(height: 6)
+
+            HStack(spacing: 6) {
+                zigzagLine
+                Image(systemName: "arrow.up")
+                    .font(.caption2.weight(.bold))
+                Text("New posts")
+                    .font(.caption.weight(.semibold))
+                Image(systemName: "arrow.up")
+                    .font(.caption2.weight(.bold))
+                zigzagLine
+            }
+            .foregroundStyle(Color.accentColor)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity)
+            .background(Color.accentColor.opacity(0.08))
+
+            ZigzagEdge()
+                .fill(Color.accentColor.opacity(0.08))
+                .frame(height: 6)
+                .rotation3DEffect(.degrees(180), axis: (x: 1, y: 0, z: 0))
+        }
+    }
+
+    private var zigzagLine: some View {
+        GeometryReader { geo in
+            ZigzagLine(amplitude: 3, wavelength: 8)
+                .stroke(Color.accentColor.opacity(0.4), lineWidth: 1.5)
+                .frame(width: geo.size.width, height: geo.size.height)
+        }
+        .frame(height: 6)
+    }
+}
+
+private struct ZigzagEdge: Shape {
+    func path(in rect: CGRect) -> Path {
+        let amplitude: CGFloat = rect.height
+        let wavelength: CGFloat = 12
+        var path = Path()
+        path.move(to: .zero)
+        var x: CGFloat = 0
+        var goingDown = true
+        while x < rect.width {
+            let nextX = min(x + wavelength / 2, rect.width)
+            path.addLine(to: CGPoint(x: nextX, y: goingDown ? amplitude : 0))
+            goingDown.toggle()
+            x = nextX
+        }
+        path.addLine(to: CGPoint(x: rect.width, y: 0))
+        path.closeSubpath()
+        return path
+    }
+}
+
+private struct ZigzagLine: Shape {
+    let amplitude: CGFloat
+    let wavelength: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let midY = rect.midY
+        path.move(to: CGPoint(x: 0, y: midY))
+        var x: CGFloat = 0
+        var goingUp = true
+        while x < rect.width {
+            let nextX = min(x + wavelength / 2, rect.width)
+            path.addLine(to: CGPoint(x: nextX, y: midY + (goingUp ? -amplitude : amplitude)))
+            goingUp.toggle()
+            x = nextX
+        }
+        return path
+    }
+}
+
 struct FeedView: View {
     @Environment(AppState.self) private var appState
 
@@ -29,6 +108,10 @@ struct FeedView: View {
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         ForEach(Array(zip(appState.posts.indices, appState.posts)), id: \.1.post.uri) { index, feedPost in
+                            if index > 0, feedPost.post.uri == appState.lastSeenPostURI {
+                                UnreadMarker()
+                            }
+
                             if let reply = feedPost.reply,
                                case .postView(let parent) = reply.parent {
                                 PostRowView(post: parent, showThreadLineBelow: true)
