@@ -203,6 +203,9 @@ final class AppState {
     func logout() {
         notificationPollTask?.cancel()
         notificationPollTask = nil
+        unreadNotificationCount = 0
+        lastSeenPostURI = nil
+        NSApplication.shared.dockTile.badgeLabel = nil
 
         // Clean up keychain credentials
         if let uuidString = UserDefaults.standard.string(forKey: Self.keychainUUIDKey),

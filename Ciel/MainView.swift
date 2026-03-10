@@ -111,6 +111,7 @@ struct MainView: View {
                             await appState.loadProfile()
                         case .notifications:
                             await appState.loadNotifications()
+                            await appState.markNotificationsSeen()
                         case .thread(let uri):
                             await appState.loadThread(uri: uri)
                         default:
