@@ -187,6 +187,7 @@ final class AppState {
         profile = nil
         profilePosts = []
         profileCursor = nil
+        isLoadingProfile = false
         viewingProfileDID = nil
         previousTab = nil
     }
@@ -210,9 +211,6 @@ final class AppState {
             let feedCursor = loadMore ? cursor : nil
 
             switch selectedTab {
-            case .profile:
-                break
-
             case .following:
                 let result = try await kit.getTimeline(limit: 50, cursor: feedCursor)
                 if loadMore {
@@ -230,6 +228,9 @@ final class AppState {
                     posts = result.feed
                 }
                 cursor = result.cursor
+
+            case .profile:
+                break
             }
         } catch {
             feedError = error.localizedDescription
@@ -252,8 +253,9 @@ final class AppState {
 
     func viewProfile(did: String) {
         let from = selectedTab
+        let savedPreviousTab = previousTab
         resetProfileState()
-        previousTab = from
+        previousTab = from == .profile ? savedPreviousTab : from
         viewingProfileDID = did
         selectedTab = .profile
         Task { await loadProfile() }
@@ -321,6 +323,7 @@ final class AppState {
         guard let kit = atProtoKit else { return }
         let did = viewingProfileDID ?? sessionDID
         guard let did else { return }
+        if loadMore && profileCursor == nil { return }
         if isLoadingProfile { return }
 
         isLoadingProfile = true

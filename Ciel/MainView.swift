@@ -77,7 +77,13 @@ struct MainView: View {
 
             ToolbarItem(placement: .automatic) {
                 Button(action: {
-                    Task { await appState.loadFeed() }
+                    Task {
+                        if appState.selectedTab == .profile {
+                            await appState.loadProfile()
+                        } else {
+                            await appState.loadFeed()
+                        }
+                    }
                 }) {
                     Image(systemName: "arrow.clockwise")
                 }
