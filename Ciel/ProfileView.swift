@@ -4,6 +4,11 @@ import ATProtoKit
 struct ProfileView: View {
     @Environment(AppState.self) private var appState
 
+    private var isOtherProfile: Bool {
+        guard let viewing = appState.viewingProfileDID else { return false }
+        return viewing != appState.sessionDID
+    }
+
     var body: some View {
         Group {
             if appState.profile == nil && appState.isLoadingProfile {
@@ -49,7 +54,7 @@ struct ProfileView: View {
         }
         .navigationTitle("Profile")
         .toolbar {
-            if appState.previousTab != nil {
+            if appState.canGoBack {
                 ToolbarItem(placement: .navigation) {
                     Button(action: { appState.goBack() }) {
                         Label("Back", systemImage: "chevron.left")
@@ -99,6 +104,25 @@ struct ProfileView: View {
                     }
                     Text("@\(profile.actorHandle)")
                         .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                if isOtherProfile {
+                    let isFollowing = profile.viewer?.followingURI != nil
+                    Button {
+                        Task { await appState.toggleFollow(did: profile.actorDID) }
+                    } label: {
+                        Text(isFollowing ? "Unfollow" : "Follow")
+                            .font(.callout)
+                            .fontWeight(.medium)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 6)
+                            .background(isFollowing ? Color.secondary.opacity(0.2) : Color.accentColor)
+                            .foregroundStyle(isFollowing ? Color.primary : Color.white)
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
                 }
             }
 

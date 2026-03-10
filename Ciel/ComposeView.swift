@@ -48,6 +48,11 @@ struct ComposeView: View {
                 Divider()
             }
 
+            if let quote = appState.quoteTarget {
+                quoteContext(quote)
+                Divider()
+            }
+
             TextEditor(text: $text)
                 .font(.body)
                 .padding(8)
@@ -112,6 +117,28 @@ struct ComposeView: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
             Spacer()
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 8)
+        .background(.quaternary.opacity(0.3))
+    }
+
+    private func quoteContext(_ post: AppBskyLexicon.Feed.PostViewDefinition) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Image(systemName: "quote.opening")
+                    .foregroundStyle(.secondary)
+                Text("Quoting @\(post.author.actorHandle)")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                Spacer()
+            }
+            if let record = post.record.getRecord(ofType: AppBskyLexicon.Feed.PostRecord.self) {
+                Text(record.text)
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(2)
+            }
         }
         .padding(.horizontal)
         .padding(.vertical, 8)

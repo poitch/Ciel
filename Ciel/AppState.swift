@@ -4,12 +4,16 @@ import ATProtoKit
 enum FeedTab: Hashable {
     case profile
     case following
+    case notifications
+    case thread(uri: String)
     case custom(uri: String, name: String)
 
     static func == (lhs: FeedTab, rhs: FeedTab) -> Bool {
         switch (lhs, rhs) {
         case (.profile, .profile): return true
         case (.following, .following): return true
+        case (.notifications, .notifications): return true
+        case (.thread(let a), .thread(let b)): return a == b
         case (.custom(let a, _), .custom(let b, _)): return a == b
         default: return false
         }
@@ -19,6 +23,8 @@ enum FeedTab: Hashable {
         switch self {
         case .profile: hasher.combine("profile")
         case .following: hasher.combine("following")
+        case .notifications: hasher.combine("notifications")
+        case .thread(let uri): hasher.combine("thread"); hasher.combine(uri)
         case .custom(let uri, _): hasher.combine(uri)
         }
     }
@@ -27,7 +33,16 @@ enum FeedTab: Hashable {
         switch self {
         case .profile: return "Profile"
         case .following: return "Following"
+        case .notifications: return "Notifications"
+        case .thread: return "Thread"
         case .custom(_, let name): return name
+        }
+    }
+
+    var isFeedTab: Bool {
+        switch self {
+        case .following, .custom: return true
+        default: return false
         }
     }
 }
@@ -59,13 +74,34 @@ final class AppState {
 
     var showCompose = false
     var replyContext: ReplyContext?
+    var quoteTarget: AppBskyLexicon.Feed.PostViewDefinition?
 
     var profile: AppBskyLexicon.Actor.ProfileViewDetailedDefinition?
     var profilePosts: [AppBskyLexicon.Feed.FeedViewPostDefinition] = []
     var profileCursor: String?
     var isLoadingProfile = false
     var viewingProfileDID: String?
-    var previousTab: FeedTab?
+    struct NavigationEntry {
+        let tab: FeedTab
+        let profileDID: String?
+    }
+    var navigationStack: [NavigationEntry] = []
+
+    var notifications: [AppBskyLexicon.Notification.Notification] = []
+    var notificationsCursor: String?
+    var isLoadingNotifications = false
+
+    var threadParents: [AppBskyLexicon.Feed.PostViewDefinition] = []
+    var threadPost: AppBskyLexicon.Feed.PostViewDefinition?
+    var threadReplies: [AppBskyLexicon.Feed.PostViewDefinition] = []
+    var isLoadingThread = false
+
+    var selectedImageURL: URL?
+    // Tracks local like/repost state overrides before the server catches up
+    var likeOverrides: [String: String?] = [:]    // uri -> likeURI (nil = unliked)
+    var repostOverrides: [String: String?] = [:]  // uri -> repostURI (nil = unreposted)
+    var likeCountAdjustments: [String: Int] = [:]   // uri -> delta
+    var repostCountAdjustments: [String: Int] = [:] // uri -> delta
 
     struct ReplyContext {
         let target: AppBskyLexicon.Feed.PostViewDefinition
@@ -179,6 +215,19 @@ final class AppState {
         savedFeeds = []
         suggestedFeeds = []
         resetProfileState()
+        navigationStack = []
+        notifications = []
+        notificationsCursor = nil
+        isLoadingNotifications = false
+        threadParents = []
+        threadPost = nil
+        threadReplies = []
+        isLoadingThread = false
+        selectedImageURL = nil
+        likeOverrides = [:]
+        repostOverrides = [:]
+        likeCountAdjustments = [:]
+        repostCountAdjustments = [:]
         selectedTab = .following
         clearStoredSession()
     }
@@ -189,7 +238,6 @@ final class AppState {
         profileCursor = nil
         isLoadingProfile = false
         viewingProfileDID = nil
-        previousTab = nil
     }
 
     private func clearStoredSession() {
@@ -201,7 +249,7 @@ final class AppState {
     // MARK: - Feed Loading
 
     func loadFeed(loadMore: Bool = false) async {
-        guard let kit = atProtoKit, selectedTab != .profile else { return }
+        guard let kit = atProtoKit, selectedTab.isFeedTab else { return }
         if isLoadingFeed { return }
 
         isLoadingFeed = true
@@ -229,7 +277,7 @@ final class AppState {
                 }
                 cursor = result.cursor
 
-            case .profile:
+            default:
                 break
             }
         } catch {
@@ -240,11 +288,17 @@ final class AppState {
     }
 
     func switchTab(_ tab: FeedTab) async {
+        navigationStack = []
         selectedTab = tab
-        if case .profile = tab {
+        switch tab {
+        case .profile:
             resetProfileState()
             await loadProfile()
-        } else {
+        case .notifications:
+            notifications = []
+            notificationsCursor = nil
+            await loadNotifications()
+        default:
             posts = []
             cursor = nil
             await loadFeed()
@@ -252,20 +306,28 @@ final class AppState {
     }
 
     func viewProfile(did: String) {
-        let from = selectedTab
-        let savedPreviousTab = previousTab
+        navigationStack.append(NavigationEntry(tab: selectedTab, profileDID: viewingProfileDID))
         resetProfileState()
-        previousTab = from == .profile ? savedPreviousTab : from
         viewingProfileDID = did
         selectedTab = .profile
         Task { await loadProfile() }
     }
 
     func goBack() {
-        guard let tab = previousTab else { return }
-        previousTab = nil
-        viewingProfileDID = nil
-        selectedTab = tab
+        guard let entry = navigationStack.popLast() else { return }
+        selectedTab = entry.tab
+        if entry.tab == .profile {
+            viewingProfileDID = entry.profileDID
+            resetProfileState()
+            viewingProfileDID = entry.profileDID
+            Task { await loadProfile() }
+        } else {
+            viewingProfileDID = nil
+        }
+    }
+
+    var canGoBack: Bool {
+        !navigationStack.isEmpty
     }
 
     // MARK: - Saved Feeds
@@ -360,43 +422,148 @@ final class AppState {
         isLoadingProfile = false
     }
 
-    // MARK: - Post Actions
+    // MARK: - Notifications
 
-    func toggleLike(post: AppBskyLexicon.Feed.PostViewDefinition) async {
-        guard let bluesky = atProtoBluesky else { return }
+    func loadNotifications(loadMore: Bool = false) async {
+        guard let kit = atProtoKit else { return }
+        if loadMore && notificationsCursor == nil { return }
+        if isLoadingNotifications { return }
 
-        let ref = ComAtprotoLexicon.Repository.StrongReference(
-            recordURI: post.uri,
-            cidHash: post.cid
-        )
+        isLoadingNotifications = true
 
         do {
-            if let likeURI = post.viewer?.likeURI {
-                try await bluesky.deleteRecord(.recordURI(atURI: likeURI))
+            let cursor = loadMore ? notificationsCursor : nil
+            let result = try await kit.listNotifications(limit: 50, cursor: cursor)
+            if loadMore {
+                notifications.append(contentsOf: result.notifications)
             } else {
-                _ = try await bluesky.createLikeRecord(ref)
+                notifications = result.notifications
             }
-            await refreshPost(uri: post.uri)
+            notificationsCursor = result.cursor
+        } catch {
+            print("Failed to load notifications: \(error)")
+        }
+
+        isLoadingNotifications = false
+    }
+
+    // MARK: - Thread
+
+    func viewThread(uri: String) {
+        if case .thread(let currentURI) = selectedTab, currentURI == uri { return }
+        navigationStack.append(NavigationEntry(tab: selectedTab, profileDID: viewingProfileDID))
+        threadParents = []
+        threadPost = nil
+        threadReplies = []
+        isLoadingThread = false
+        selectedTab = .thread(uri: uri)
+        Task { await loadThread(uri: uri) }
+    }
+
+    func loadThread(uri: String) async {
+        guard let kit = atProtoKit else { return }
+        if isLoadingThread { return }
+
+        isLoadingThread = true
+
+        do {
+            let result = try await kit.getPostThread(from: uri, depth: 6, parentHeight: 80)
+            if case .threadViewPost(let thread) = result.thread {
+                threadParents = flattenParents(thread)
+                threadPost = thread.post
+                threadReplies = thread.replies?.compactMap { reply in
+                    if case .threadViewPost(let r) = reply { return r.post }
+                    return nil
+                } ?? []
+            }
+        } catch {
+            print("Failed to load thread: \(error)")
+        }
+
+        isLoadingThread = false
+    }
+
+    private func flattenParents(_ thread: AppBskyLexicon.Feed.ThreadViewPostDefinition) -> [AppBskyLexicon.Feed.PostViewDefinition] {
+        var parents: [AppBskyLexicon.Feed.PostViewDefinition] = []
+        var current = thread.parent
+        while case .threadViewPost(let parentThread) = current {
+            parents.append(parentThread.post)
+            current = parentThread.parent
+        }
+        parents.reverse()
+        return parents
+    }
+
+    // MARK: - Follow
+
+    func toggleFollow(did: String) async {
+        guard let bluesky = atProtoBluesky else { return }
+
+        do {
+            if let followingURI = profile?.viewer?.followingURI {
+                try await bluesky.deleteRecord(.recordURI(atURI: followingURI))
+            } else {
+                _ = try await bluesky.createFollowRecord(actorDID: did)
+            }
+            // Refresh profile to get updated viewer state
+            if let kit = atProtoKit {
+                profile = try await kit.getProfile(for: did)
+            }
+        } catch {
+            print("Follow action failed: \(error)")
+        }
+    }
+
+    // MARK: - Post Actions
+
+    @discardableResult
+    func toggleLike(post: AppBskyLexicon.Feed.PostViewDefinition) async -> Bool {
+        guard let bluesky = atProtoBluesky else { return false }
+
+        let wasLiked = isLiked(post)
+        let likeURI = likeOverrides[post.uri] ?? post.viewer?.likeURI
+
+        do {
+            if wasLiked, let likeURI {
+                try await bluesky.deleteRecord(.recordURI(atURI: likeURI))
+                likeOverrides[post.uri] = .some(nil)
+                likeCountAdjustments[post.uri, default: 0] -= 1
+            } else {
+                let ref = ComAtprotoLexicon.Repository.StrongReference(
+                    recordURI: post.uri,
+                    cidHash: post.cid
+                )
+                let result = try await bluesky.createLikeRecord(ref)
+                likeOverrides[post.uri] = result.recordURI
+                likeCountAdjustments[post.uri, default: 0] += 1
+            }
+            return true
         } catch {
             print("Like action failed: \(error)")
+            return false
         }
     }
 
     func toggleRepost(post: AppBskyLexicon.Feed.PostViewDefinition) async {
         guard let bluesky = atProtoBluesky else { return }
 
-        let ref = ComAtprotoLexicon.Repository.StrongReference(
-            recordURI: post.uri,
-            cidHash: post.cid
-        )
+        let wasReposted = isReposted(post)
+        let repostURI = repostOverrides[post.uri] ?? post.viewer?.repostURI
 
         do {
-            if let repostURI = post.viewer?.repostURI {
+            if wasReposted, let repostURI {
                 try await bluesky.deleteRecord(.recordURI(atURI: repostURI))
+                repostOverrides[post.uri] = .some(nil)
+                repostCountAdjustments[post.uri, default: 0] -= 1
             } else {
-                _ = try await bluesky.createRepostRecord(ref)
+                let ref = ComAtprotoLexicon.Repository.StrongReference(
+                    recordURI: post.uri,
+                    cidHash: post.cid
+                )
+                let result = try await bluesky.createRepostRecord(ref)
+                repostOverrides[post.uri] = result.recordURI
+                repostCountAdjustments[post.uri, default: 0] += 1
             }
-            await refreshPost(uri: post.uri)
         } catch {
             print("Repost action failed: \(error)")
         }
@@ -410,7 +577,14 @@ final class AppState {
                 cidHash: rootPost.cid
             )
         }
+        quoteTarget = nil
         replyContext = ReplyContext(target: post, rootRef: rootRef)
+        showCompose = true
+    }
+
+    func quotePost(_ post: AppBskyLexicon.Feed.PostViewDefinition) {
+        replyContext = nil
+        quoteTarget = post
         showCompose = true
     }
 
@@ -427,6 +601,12 @@ final class AppState {
                 aspectRatio: nil
             )
             embed = .images(images: [query])
+        } else if let quote = quoteTarget {
+            let ref = ComAtprotoLexicon.Repository.StrongReference(
+                recordURI: quote.uri,
+                cidHash: quote.cid
+            )
+            embed = .record(strongReference: ref)
         }
 
         var replyRef: AppBskyLexicon.Feed.PostRecord.ReplyReference?
@@ -448,13 +628,34 @@ final class AppState {
         )
 
         replyContext = nil
+        quoteTarget = nil
         showCompose = false
         await loadFeed()
     }
 
     // MARK: - Helpers
 
-    private func refreshPost(uri: String) async {
-        await loadFeed()
+    func isLiked(_ post: AppBskyLexicon.Feed.PostViewDefinition) -> Bool {
+        if let override = likeOverrides[post.uri] {
+            return override != nil
+        }
+        return post.viewer?.likeURI != nil
+    }
+
+    func likeCount(_ post: AppBskyLexicon.Feed.PostViewDefinition) -> Int? {
+        guard let base = post.likeCount else { return nil }
+        return base + (likeCountAdjustments[post.uri] ?? 0)
+    }
+
+    func isReposted(_ post: AppBskyLexicon.Feed.PostViewDefinition) -> Bool {
+        if let override = repostOverrides[post.uri] {
+            return override != nil
+        }
+        return post.viewer?.repostURI != nil
+    }
+
+    func repostCount(_ post: AppBskyLexicon.Feed.PostViewDefinition) -> Int? {
+        guard let base = post.repostCount else { return nil }
+        return base + (repostCountAdjustments[post.uri] ?? 0)
     }
 }

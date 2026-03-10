@@ -1,5 +1,6 @@
 import SwiftUI
 import ATProtoKit
+import AppKit
 
 struct PostRowView: View {
     @Environment(AppState.self) private var appState
@@ -7,6 +8,7 @@ struct PostRowView: View {
     private let _post: AppBskyLexicon.Feed.PostViewDefinition
     var showThreadLineAbove = false
     var showThreadLineBelow = false
+    @State private var likeAnimating = false
 
     init(feedPost: AppBskyLexicon.Feed.FeedViewPostDefinition, showThreadLineAbove: Bool = false, showThreadLineBelow: Bool = false) {
         self.feedPost = feedPost
@@ -123,6 +125,9 @@ struct PostRowView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .contentShape(Rectangle())
+        .onTapGesture {
+            appState.viewThread(uri: post.uri)
+        }
         .overlay {
             if showThreadLineAbove || showThreadLineBelow {
                 GeometryReader { geo in
@@ -184,16 +189,21 @@ struct PostRowView: View {
         let columns = images.count == 1 ? 1 : 2
         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: columns), spacing: 4) {
             ForEach(Array(images.enumerated()), id: \.offset) { _, image in
-                AsyncImage(url: image.thumbnailImageURL) { img in
-                    img.resizable()
-                        .aspectRatio(contentMode: .fill)
-                } placeholder: {
-                    Rectangle()
-                        .fill(.quaternary)
+                Button {
+                    appState.selectedImageURL = image.fullSizeImageURL
+                } label: {
+                    AsyncImage(url: image.thumbnailImageURL) { img in
+                        img.resizable()
+                            .aspectRatio(contentMode: .fill)
+                    } placeholder: {
+                        Rectangle()
+                            .fill(.quaternary)
+                    }
+                    .frame(maxHeight: images.count == 1 ? 300 : 150)
+                    .clipped()
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
                 }
-                .frame(maxHeight: images.count == 1 ? 300 : 150)
-                .clipped()
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .buttonStyle(.plain)
             }
         }
         .padding(.top, 4)
@@ -201,53 +211,90 @@ struct PostRowView: View {
 
     @ViewBuilder
     private func externalLinkView(_ external: AppBskyLexicon.Embed.ExternalDefinition.ViewExternal) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            if let thumb = external.thumbnailImageURL {
-                AsyncImage(url: thumb) { img in
-                    img.resizable()
-                        .aspectRatio(contentMode: .fill)
-                } placeholder: {
-                    Rectangle().fill(.quaternary)
-                }
-                .frame(maxHeight: 160)
-                .clipped()
+        Button {
+            if let url = URL(string: external.uri) {
+                NSWorkspace.shared.open(url)
             }
-            Text(external.title)
-                .font(.callout)
-                .fontWeight(.medium)
-                .lineLimit(2)
-            Text(external.uri)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
+        } label: {
+            VStack(alignment: .leading, spacing: 4) {
+                if let thumb = external.thumbnailImageURL {
+                    AsyncImage(url: thumb) { img in
+                        img.resizable()
+                            .aspectRatio(contentMode: .fill)
+                    } placeholder: {
+                        Rectangle().fill(.quaternary)
+                    }
+                    .frame(maxHeight: 160)
+                    .clipped()
+                }
+                Text(external.title)
+                    .font(.callout)
+                    .fontWeight(.medium)
+                    .lineLimit(2)
+                Text(external.uri)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            .padding(8)
+            .background(.quaternary.opacity(0.5))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
         }
-        .padding(8)
-        .background(.quaternary.opacity(0.5))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .buttonStyle(.plain)
         .padding(.top, 4)
     }
 
     // MARK: - Action Bar
 
     private var actionBar: some View {
-        HStack(spacing: 24) {
+        let liked = appState.isLiked(post)
+        let reposted = appState.isReposted(post)
+
+        return HStack(spacing: 24) {
             Button(action: { appState.reply(to: post, feedPost: feedPost) }) {
                 Label(formatCount(post.replyCount), systemImage: "bubble.right")
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
 
-            Button(action: { Task { await appState.toggleRepost(post: post) } }) {
-                Label(formatCount(post.repostCount), systemImage: "arrow.2.squarepath")
+            Menu {
+                Button {
+                    Task { await appState.toggleRepost(post: post) }
+                } label: {
+                    Label(reposted ? "Undo Repost" : "Repost", systemImage: "arrow.2.squarepath")
+                }
+                Button {
+                    appState.quotePost(post)
+                } label: {
+                    Label("Quote Post", systemImage: "quote.opening")
+                }
+            } label: {
+                Label(formatCount(appState.repostCount(post)), systemImage: "arrow.2.squarepath")
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(post.viewer?.repostURI != nil ? .green : .secondary)
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .foregroundStyle(reposted ? .green : .secondary)
 
-            Button(action: { Task { await appState.toggleLike(post: post) } }) {
-                Label(formatCount(post.likeCount), systemImage: post.viewer?.likeURI != nil ? "heart.fill" : "heart")
+            Button {
+                Task {
+                    let success = await appState.toggleLike(post: post)
+                    if success {
+                        withAnimation(.spring(response: 0.25, dampingFraction: 0.4)) {
+                            likeAnimating = true
+                        }
+                        try? await Task.sleep(for: .milliseconds(300))
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+                            likeAnimating = false
+                        }
+                    }
+                }
+            } label: {
+                Label(formatCount(appState.likeCount(post)), systemImage: liked ? "heart.fill" : "heart")
             }
             .buttonStyle(.plain)
-            .foregroundStyle(post.viewer?.likeURI != nil ? .red : .secondary)
+            .foregroundStyle(liked ? .red : .secondary)
+            .scaleEffect(likeAnimating ? 1.4 : 1.0)
 
             Spacer()
         }
@@ -255,33 +302,4 @@ struct PostRowView: View {
         .padding(.top, 4)
     }
 
-    // MARK: - Helpers
-
-    private func formatCount(_ count: Int?) -> String {
-        guard let count, count > 0 else { return "" }
-        if count >= 1_000_000 {
-            return String(format: "%.1fM", Double(count) / 1_000_000)
-        } else if count >= 1_000 {
-            return String(format: "%.1fK", Double(count) / 1_000)
-        }
-        return "\(count)"
-    }
-
-    private static let olderDateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MMM d"
-        return formatter
-    }()
-
-    private func relativeTime(_ date: Date) -> String {
-        let now = Date()
-        let interval = now.timeIntervalSince(date)
-
-        if interval < 60 { return "now" }
-        if interval < 3600 { return "\(Int(interval / 60))m" }
-        if interval < 86400 { return "\(Int(interval / 3600))h" }
-        if interval < 604800 { return "\(Int(interval / 86400))d" }
-
-        return Self.olderDateFormatter.string(from: date)
-    }
 }
