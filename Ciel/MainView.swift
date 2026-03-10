@@ -1,5 +1,10 @@
 import SwiftUI
 import ATProtoKit
+import AppKit
+
+extension URL: @retroactive Identifiable {
+    public var id: String { absoluteString }
+}
 
 struct MainView: View {
     @Environment(AppState.self) private var appState
@@ -22,6 +27,9 @@ struct MainView: View {
 
                 Label("Following", systemImage: "person.2")
                     .tag(FeedTab.following)
+
+                Label("Notifications", systemImage: "bell")
+                    .tag(FeedTab.notifications)
 
                 if !appState.savedFeeds.isEmpty {
                     Section("My Feeds") {
@@ -52,14 +60,22 @@ struct MainView: View {
             .listStyle(.sidebar)
             .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 300)
         } detail: {
-            let isShowingProfile = appState.selectedTab == .profile
+            let isFeed = appState.selectedTab.isFeedTab
             ZStack {
                 FeedView()
-                    .opacity(isShowingProfile ? 0 : 1)
-                    .allowsHitTesting(!isShowingProfile)
+                    .opacity(isFeed ? 1 : 0)
+                    .allowsHitTesting(isFeed)
 
-                if isShowingProfile {
+                if appState.selectedTab == .profile {
                     ProfileView()
+                }
+
+                if appState.selectedTab == .notifications {
+                    NotificationsView()
+                }
+
+                if case .thread = appState.selectedTab {
+                    ThreadView()
                 }
             }
         }
@@ -67,6 +83,7 @@ struct MainView: View {
             ToolbarItem(placement: .automatic) {
                 Button(action: {
                     appState.replyContext = nil
+                    appState.quoteTarget = nil
                     appState.showCompose = true
                 }) {
                     Image(systemName: "square.and.pencil")
@@ -78,9 +95,14 @@ struct MainView: View {
             ToolbarItem(placement: .automatic) {
                 Button(action: {
                     Task {
-                        if appState.selectedTab == .profile {
+                        switch appState.selectedTab {
+                        case .profile:
                             await appState.loadProfile()
-                        } else {
+                        case .notifications:
+                            await appState.loadNotifications()
+                        case .thread(let uri):
+                            await appState.loadThread(uri: uri)
+                        default:
                             await appState.loadFeed()
                         }
                     }
@@ -93,6 +115,9 @@ struct MainView: View {
         }
         .sheet(isPresented: $state.showCompose) {
             ComposeView()
+        }
+        .sheet(item: $state.selectedImageURL) { url in
+            ImageViewerSheet(url: url)
         }
         .alert("Sign Out", isPresented: $showSignOutConfirmation) {
             Button("Cancel", role: .cancel) {}
@@ -122,5 +147,39 @@ struct MainView: View {
                 Image(systemName: "number")
             }
         }
+    }
+}
+
+struct ImageViewerSheet: View {
+    let url: URL
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Spacer()
+                Button("Done") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                    .padding()
+            }
+
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case .success(let image):
+                    image.resizable()
+                        .aspectRatio(contentMode: .fit)
+                case .failure:
+                    ContentUnavailableView(
+                        "Failed to Load",
+                        systemImage: "photo",
+                        description: Text("Could not load this image.")
+                    )
+                default:
+                    ProgressView()
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(minWidth: 600, minHeight: 500)
     }
 }
