@@ -1,5 +1,6 @@
 import SwiftUI
 import ATProtoKit
+import NukeUI
 
 struct ProfileView: View {
     @Environment(AppState.self) private var appState
@@ -68,11 +69,13 @@ struct ProfileView: View {
     @ViewBuilder
     private func bannerView(_ profile: AppBskyLexicon.Actor.ProfileViewDetailedDefinition) -> some View {
         if let bannerURL = profile.bannerImageURL {
-            AsyncImage(url: bannerURL) { image in
-                image.resizable()
-                    .aspectRatio(contentMode: .fill)
-            } placeholder: {
-                Rectangle().fill(.quaternary)
+            LazyImage(url: bannerURL) { state in
+                if let image = state.image {
+                    image.resizable()
+                        .aspectRatio(contentMode: .fill)
+                } else {
+                    Rectangle().fill(.quaternary)
+                }
             }
             .frame(height: 150)
             .clipped()
@@ -86,11 +89,13 @@ struct ProfileView: View {
     private func profileHeader(_ profile: AppBskyLexicon.Actor.ProfileViewDetailedDefinition) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top, spacing: 12) {
-                AsyncImage(url: profile.avatarImageURL) { image in
-                    image.resizable()
-                        .aspectRatio(contentMode: .fill)
-                } placeholder: {
-                    Circle().fill(.quaternary)
+                LazyImage(url: profile.avatarImageURL) { state in
+                    if let image = state.image {
+                        image.resizable()
+                            .aspectRatio(contentMode: .fill)
+                    } else {
+                        Circle().fill(.quaternary)
+                    }
                 }
                 .frame(width: 64, height: 64)
                 .clipShape(Circle())

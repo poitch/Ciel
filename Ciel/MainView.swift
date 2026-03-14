@@ -1,6 +1,7 @@
 import SwiftUI
 import ATProtoKit
 import AppKit
+import NukeUI
 
 extension URL: @retroactive Identifiable {
     public var id: String { absoluteString }
@@ -147,11 +148,13 @@ struct MainView: View {
             Text(feed.displayName)
         } icon: {
             if let avatarURL = feed.avatarImageURL {
-                AsyncImage(url: avatarURL) { image in
-                    image.resizable()
-                        .aspectRatio(contentMode: .fill)
-                } placeholder: {
-                    Image(systemName: "number")
+                LazyImage(url: avatarURL) { state in
+                    if let image = state.image {
+                        image.resizable()
+                            .aspectRatio(contentMode: .fill)
+                    } else {
+                        Image(systemName: "number")
+                    }
                 }
                 .frame(width: 20, height: 20)
                 .clipShape(RoundedRectangle(cornerRadius: 4))
@@ -175,18 +178,17 @@ struct ImageViewerSheet: View {
                     .padding()
             }
 
-            AsyncImage(url: url) { phase in
-                switch phase {
-                case .success(let image):
+            LazyImage(url: url) { state in
+                if let image = state.image {
                     image.resizable()
                         .aspectRatio(contentMode: .fit)
-                case .failure:
+                } else if state.error != nil {
                     ContentUnavailableView(
                         "Failed to Load",
                         systemImage: "photo",
                         description: Text("Could not load this image.")
                     )
-                default:
+                } else {
                     ProgressView()
                 }
             }

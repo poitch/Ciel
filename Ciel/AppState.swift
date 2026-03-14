@@ -67,6 +67,19 @@ final class AppState {
     var feedError: String?
     var lastSeenPostURI: String?
 
+    /// URIs of posts already shown as self-thread parents, used to deduplicate the feed.
+    var feedParentURIs: Set<String> {
+        var uris = Set<String>()
+        for feedPost in posts {
+            if let reply = feedPost.reply,
+               case .postView(let parent) = reply.parent,
+               parent.author.actorDID == feedPost.post.author.actorDID {
+                uris.insert(parent.uri)
+            }
+        }
+        return uris
+    }
+
     var savedFeeds: [AppBskyLexicon.Feed.GeneratorViewDefinition] = []
     var isLoadingSavedFeeds = false
 

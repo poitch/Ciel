@@ -1,6 +1,8 @@
 import SwiftUI
 import ATProtoKit
 import AppKit
+import NukeUI
+import AVKit
 
 struct PostRowView: View {
     @Environment(AppState.self) private var appState
@@ -9,6 +11,7 @@ struct PostRowView: View {
     var showThreadLineAbove = false
     var showThreadLineBelow = false
     @State private var likeAnimating = false
+    @State private var likePending = false
 
     init(feedPost: AppBskyLexicon.Feed.FeedViewPostDefinition, showThreadLineAbove: Bool = false, showThreadLineBelow: Bool = false) {
         self.feedPost = feedPost
@@ -72,12 +75,14 @@ struct PostRowView: View {
 
             HStack(alignment: .top, spacing: 12) {
                 Button { appState.viewProfile(did: post.author.actorDID) } label: {
-                    AsyncImage(url: post.author.avatarImageURL) { image in
-                        image.resizable()
-                            .aspectRatio(contentMode: .fill)
-                    } placeholder: {
-                        Circle()
-                            .fill(.quaternary)
+                    LazyImage(url: post.author.avatarImageURL) { state in
+                        if let image = state.image {
+                            image.resizable()
+                                .aspectRatio(contentMode: .fill)
+                        } else {
+                            Circle()
+                                .fill(.quaternary)
+                        }
                     }
                     .frame(width: 40, height: 40)
                     .clipShape(Circle())
@@ -175,6 +180,9 @@ struct PostRowView: View {
             case .embedImagesView(let imagesView):
                 imageGrid(imagesView.images)
 
+            case .embedVideoView(let videoView):
+                videoPlayerView(videoView)
+
             case .embedExternalView(let externalView):
                 externalLinkView(externalView.external)
 
@@ -186,27 +194,64 @@ struct PostRowView: View {
 
     @ViewBuilder
     private func imageGrid(_ images: [AppBskyLexicon.Embed.ImagesDefinition.ViewImage]) -> some View {
-        let columns = images.count == 1 ? 1 : 2
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: columns), spacing: 4) {
-            ForEach(Array(images.enumerated()), id: \.offset) { _, image in
-                Button {
-                    appState.selectedImageURL = image.fullSizeImageURL
-                } label: {
-                    AsyncImage(url: image.thumbnailImageURL) { img in
+        if images.count == 1, let image = images.first {
+            let ratio: CGFloat = image.aspectRatio.map {
+                CGFloat($0.width) / CGFloat($0.height)
+            } ?? (4.0 / 3.0)
+
+            Button {
+                appState.selectedImageURL = image.fullSizeImageURL
+            } label: {
+                LazyImage(url: image.thumbnailImageURL) { state in
+                    if let img = state.image {
                         img.resizable()
                             .aspectRatio(contentMode: .fill)
-                    } placeholder: {
+                    } else {
                         Rectangle()
                             .fill(.quaternary)
                     }
-                    .frame(maxHeight: images.count == 1 ? 300 : 150)
-                    .clipped()
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
                 }
-                .buttonStyle(.plain)
+                .aspectRatio(ratio, contentMode: .fit)
+                .frame(maxHeight: 300)
+                .clipped()
+                .clipShape(RoundedRectangle(cornerRadius: 8))
             }
+            .buttonStyle(.plain)
+            .padding(.top, 4)
+        } else {
+            let columns = 2
+            let cellHeight: CGFloat = 150
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: columns), spacing: 4) {
+                ForEach(Array(images.enumerated()), id: \.offset) { _, image in
+                    Button {
+                        appState.selectedImageURL = image.fullSizeImageURL
+                    } label: {
+                        GeometryReader { geo in
+                            LazyImage(url: image.thumbnailImageURL) { state in
+                                if let img = state.image {
+                                    img.resizable()
+                                        .aspectRatio(contentMode: .fill)
+                                } else {
+                                    Rectangle()
+                                        .fill(.quaternary)
+                                }
+                            }
+                            .frame(width: geo.size.width, height: geo.size.height)
+                        }
+                        .frame(height: cellHeight)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.top, 4)
         }
-        .padding(.top, 4)
+    }
+
+    @ViewBuilder
+    private func videoPlayerView(_ video: AppBskyLexicon.Embed.VideoDefinition.View) -> some View {
+        VideoThumbnailView(video: video)
+            .padding(.top, 4)
     }
 
     @ViewBuilder
@@ -218,11 +263,13 @@ struct PostRowView: View {
         } label: {
             VStack(alignment: .leading, spacing: 4) {
                 if let thumb = external.thumbnailImageURL {
-                    AsyncImage(url: thumb) { img in
-                        img.resizable()
-                            .aspectRatio(contentMode: .fill)
-                    } placeholder: {
-                        Rectangle().fill(.quaternary)
+                    LazyImage(url: thumb) { state in
+                        if let img = state.image {
+                            img.resizable()
+                                .aspectRatio(contentMode: .fill)
+                        } else {
+                            Rectangle().fill(.quaternary)
+                        }
                     }
                     .frame(maxHeight: 160)
                     .clipped()
@@ -278,7 +325,9 @@ struct PostRowView: View {
 
             Button {
                 Task {
+                    likePending = true
                     let success = await appState.toggleLike(post: post)
+                    likePending = false
                     if success {
                         withAnimation(.spring(response: 0.25, dampingFraction: 0.4)) {
                             likeAnimating = true
@@ -291,6 +340,11 @@ struct PostRowView: View {
                 }
             } label: {
                 Label(formatCount(appState.likeCount(post)), systemImage: liked ? "heart.fill" : "heart")
+                    .overlay {
+                        if likePending {
+                            HeartPulseView()
+                        }
+                    }
             }
             .buttonStyle(.plain)
             .foregroundStyle(liked ? .red : .secondary)
@@ -302,4 +356,80 @@ struct PostRowView: View {
         .padding(.top, 4)
     }
 
+}
+
+struct VideoThumbnailView: View {
+    let video: AppBskyLexicon.Embed.VideoDefinition.View
+    @State private var player: AVPlayer?
+
+    private var aspectRatio: CGFloat {
+        video.aspectRatio.map { CGFloat($0.width) / CGFloat($0.height) } ?? (16.0 / 9.0)
+    }
+
+    var body: some View {
+        if let player {
+            VideoPlayer(player: player)
+                .aspectRatio(aspectRatio, contentMode: .fit)
+                .frame(maxHeight: 300)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .onDisappear {
+                    player.pause()
+                    self.player = nil
+                }
+        } else {
+            Button {
+                if let url = URL(string: video.playlistURI) {
+                    let newPlayer = AVPlayer(url: url)
+                    player = newPlayer
+                    newPlayer.play()
+                }
+            } label: {
+                ZStack {
+                    if let thumbStr = video.thumbnailImageURL, let thumbURL = URL(string: thumbStr) {
+                        LazyImage(url: thumbURL) { state in
+                            if let image = state.image {
+                                image.resizable()
+                                    .aspectRatio(contentMode: .fill)
+                            } else {
+                                Rectangle().fill(.quaternary)
+                            }
+                        }
+                    } else {
+                        Rectangle().fill(.quaternary)
+                    }
+
+                    Circle()
+                        .fill(.black.opacity(0.5))
+                        .frame(width: 50, height: 50)
+                        .overlay {
+                            Image(systemName: "play.fill")
+                                .font(.title2)
+                                .foregroundStyle(.white)
+                                .offset(x: 2)
+                        }
+                }
+                .aspectRatio(aspectRatio, contentMode: .fit)
+                .frame(maxHeight: 300)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+            .buttonStyle(.plain)
+        }
+    }
+}
+
+struct HeartPulseView: View {
+    @State private var pulse = false
+
+    var body: some View {
+        Image(systemName: "heart.fill")
+            .foregroundStyle(.red.opacity(0.5))
+            .scaleEffect(pulse ? 2.0 : 1.0)
+            .opacity(pulse ? 0 : 0.6)
+            .animation(
+                .easeOut(duration: 0.8)
+                .repeatForever(autoreverses: false),
+                value: pulse
+            )
+            .onAppear { pulse = true }
+    }
 }
