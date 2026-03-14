@@ -358,7 +358,7 @@ struct PostRowView: View {
 
 }
 
-struct VideoThumbnailView: View {
+private struct VideoThumbnailView: View {
     let video: AppBskyLexicon.Embed.VideoDefinition.View
     @State private var player: AVPlayer?
 
@@ -417,7 +417,7 @@ struct VideoThumbnailView: View {
     }
 }
 
-struct HeartPulseView: View {
+private struct HeartPulseView: View {
     @State private var pulse = false
 
     var body: some View {

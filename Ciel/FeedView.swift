@@ -106,15 +106,17 @@ struct FeedView: View {
                 )
             } else {
                 ScrollView {
+                    let parentURIs = appState.feedParentURIs
+                    let lastSeenURI = appState.lastSeenPostURI
                     LazyVStack(spacing: 0) {
                         ForEach(Array(zip(appState.posts.indices, appState.posts)), id: \.1.post.uri) { index, feedPost in
                             // Skip standalone posts already shown as a thread parent
-                            if !appState.feedParentURIs.contains(feedPost.post.uri) || feedPost.reply != nil {
+                            if !parentURIs.contains(feedPost.post.uri) || feedPost.reply != nil {
                                 if let reply = feedPost.reply,
                                    case .postView(let parent) = reply.parent {
                                     if parent.author.actorDID == feedPost.post.author.actorDID {
                                         // Self-thread: same author replied to their own post
-                                        if index > 0, feedPost.post.uri == appState.lastSeenPostURI {
+                                        if index > 0, lastSeenURI != nil, feedPost.post.uri == lastSeenURI || parent.uri == lastSeenURI {
                                             UnreadMarker()
                                         }
                                         PostRowView(post: parent, showThreadLineBelow: true)
@@ -123,7 +125,7 @@ struct FeedView: View {
                                     }
                                     // Otherwise skip: reply to someone else's post doesn't belong in feed
                                 } else {
-                                    if index > 0, feedPost.post.uri == appState.lastSeenPostURI {
+                                    if index > 0, lastSeenURI != nil, feedPost.post.uri == lastSeenURI {
                                         UnreadMarker()
                                     }
                                     PostRowView(feedPost: feedPost)

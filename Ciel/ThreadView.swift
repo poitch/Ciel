@@ -84,9 +84,14 @@ private struct ThreadPostDetails: View {
         post.threadgate?.record.getRecord(ofType: AppBskyLexicon.Feed.ThreadgateRecord.self)
     }
 
-    private var replyRestrictionText: String? {
+    private enum ReplyRestriction {
+        case disabled
+        case limitedTo(String)
+    }
+
+    private var replyRestriction: ReplyRestriction? {
         guard let rules = threadgateRecord?.allow else { return nil }
-        if rules.isEmpty { return "Nobody can reply" }
+        if rules.isEmpty { return .disabled }
 
         var parts: [String] = []
         for rule in rules {
@@ -104,7 +109,7 @@ private struct ThreadPostDetails: View {
             }
         }
         if parts.isEmpty { return nil }
-        return parts.joined(separator: ", ")
+        return .limitedTo(parts.joined(separator: ", "))
     }
 
     var body: some View {
@@ -113,12 +118,18 @@ private struct ThreadPostDetails: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 
-            if let restriction = replyRestrictionText {
+            if let restriction = replyRestriction {
                 HStack(spacing: 4) {
                     Image(systemName: "person.2.circle")
                         .font(.subheadline)
-                    Text("Replies limited to \(restriction)")
-                        .font(.subheadline)
+                    switch restriction {
+                    case .disabled:
+                        Text("Replies disabled")
+                            .font(.subheadline)
+                    case .limitedTo(let who):
+                        Text("Replies limited to \(who)")
+                            .font(.subheadline)
+                    }
                 }
                 .foregroundStyle(.secondary)
             }

@@ -281,9 +281,17 @@ final class AppState {
         isLoadingFeed = true
         feedError = nil
 
-        // Remember the top post so we can show an "unread" marker after refresh
-        if !loadMore, let topURI = posts.first?.post.uri {
-            lastSeenPostURI = topURI
+        // Remember the first visible post so we can show an "unread" marker after refresh
+        if !loadMore {
+            lastSeenPostURI = posts.first(where: { feedPost in
+                // Skip replies to other people — those are filtered from the feed
+                if let reply = feedPost.reply,
+                   case .postView(let parent) = reply.parent,
+                   parent.author.actorDID != feedPost.post.author.actorDID {
+                    return false
+                }
+                return true
+            })?.post.uri
         }
 
         // Clear optimistic overrides on full refresh — new posts carry fresh viewer state
