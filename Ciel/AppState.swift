@@ -5,6 +5,8 @@ enum FeedTab: Hashable {
     case profile
     case following
     case notifications
+    case chats
+    case conversation(id: String)
     case thread(uri: String)
     case custom(uri: String, name: String)
 
@@ -13,6 +15,8 @@ enum FeedTab: Hashable {
         case (.profile, .profile): return true
         case (.following, .following): return true
         case (.notifications, .notifications): return true
+        case (.chats, .chats): return true
+        case (.conversation(let a), .conversation(let b)): return a == b
         case (.thread(let a), .thread(let b)): return a == b
         case (.custom(let a, _), .custom(let b, _)): return a == b
         default: return false
@@ -24,6 +28,8 @@ enum FeedTab: Hashable {
         case .profile: hasher.combine("profile")
         case .following: hasher.combine("following")
         case .notifications: hasher.combine("notifications")
+        case .chats: hasher.combine("chats")
+        case .conversation(let id): hasher.combine("conversation"); hasher.combine(id)
         case .thread(let uri): hasher.combine("thread"); hasher.combine(uri)
         case .custom(let uri, _): hasher.combine(uri)
         }
@@ -34,6 +40,8 @@ enum FeedTab: Hashable {
         case .profile: return "Profile"
         case .following: return "Following"
         case .notifications: return "Notifications"
+        case .chats: return "Chats"
+        case .conversation: return "Conversation"
         case .thread: return "Thread"
         case .custom(_, let name): return name
         }
@@ -58,6 +66,7 @@ final class AppState {
     var config: ATProtocolConfiguration?
     var atProtoKit: ATProtoKit?
     var atProtoBluesky: ATProtoBluesky?
+    var atProtoChat: ATProtoBlueskyChat?
     var sessionDID: String?
 
     var selectedTab: FeedTab = .following
@@ -67,17 +76,100 @@ final class AppState {
     var feedError: String?
     var lastSeenPostURI: String?
 
-    /// URIs of posts already shown as self-thread parents, used to deduplicate the feed.
-    var feedParentURIs: Set<String> {
-        var uris = Set<String>()
-        for feedPost in posts {
+    /// A group of feed items to render together: either a single post or a self-thread chain.
+    struct FeedGroup: Identifiable {
+        let id: String // URI of the last post in the group
+        let posts: [AppBskyLexicon.Feed.PostViewDefinition]
+        let feedPost: AppBskyLexicon.Feed.FeedViewPostDefinition // last item (carries reason/repost info)
+    }
+
+    /// Groups the raw feed into renderable items, collapsing self-thread chains.
+    var feedGroups: [FeedGroup] {
+        // Build a set of URIs that appear as posts in the feed
+        let postURIs = Set(posts.map(\.post.uri))
+
+        // Build parent→child index map for self-thread replies in the feed
+        var childByParent: [String: Int] = [:]
+        for (index, feedPost) in posts.enumerated() {
             if let reply = feedPost.reply,
                case .postView(let parent) = reply.parent,
-               parent.author.actorDID == feedPost.post.author.actorDID {
-                uris.insert(parent.uri)
+               parent.author.actorDID == feedPost.post.author.actorDID,
+               postURIs.contains(parent.uri) {
+                childByParent[parent.uri] = index
             }
         }
-        return uris
+
+        // Walk each self-thread chain from root to leaf, keyed by root URI
+        // so we can emit the group at the position of the newest (first-encountered) post
+        var chainByRoot: [String: (chain: [AppBskyLexicon.Feed.PostViewDefinition],
+                                    feedPost: AppBskyLexicon.Feed.FeedViewPostDefinition)] = [:]
+        var rootForURI: [String: String] = [:] // maps any chain member URI → root URI
+        var consumed = Set<String>()
+        var groups: [FeedGroup] = []
+
+        // Pre-build chains starting from root posts
+        for feedPost in posts {
+            if consumed.contains(feedPost.post.uri) { continue }
+
+            // Skip replies to other people
+            if let reply = feedPost.reply,
+               case .postView(let parent) = reply.parent,
+               parent.author.actorDID != feedPost.post.author.actorDID {
+                continue
+            }
+
+            // Skip self-thread replies whose parent is in the feed (will be consumed by root)
+            if let reply = feedPost.reply,
+               case .postView(let parent) = reply.parent,
+               parent.author.actorDID == feedPost.post.author.actorDID,
+               postURIs.contains(parent.uri) {
+                continue
+            }
+
+            // This is a root post (or a self-thread reply whose parent isn't in the feed)
+            var chain: [AppBskyLexicon.Feed.PostViewDefinition] = []
+
+            // If this is a self-thread reply whose parent isn't in the feed,
+            // include the parent from the reply data for context
+            if let reply = feedPost.reply,
+               case .postView(let parent) = reply.parent,
+               parent.author.actorDID == feedPost.post.author.actorDID,
+               !postURIs.contains(parent.uri) {
+                chain.append(parent)
+            }
+
+            chain.append(feedPost.post)
+            var lastFeedPost = feedPost
+            consumed.insert(feedPost.post.uri)
+
+            // Follow the chain via parent→child map
+            var currentURI = feedPost.post.uri
+            while let childIndex = childByParent[currentURI] {
+                let nextFeedPost = posts[childIndex]
+                if consumed.contains(nextFeedPost.post.uri) { break }
+                chain.append(nextFeedPost.post)
+                consumed.insert(nextFeedPost.post.uri)
+                currentURI = nextFeedPost.post.uri
+                lastFeedPost = nextFeedPost
+            }
+
+            let rootURI = feedPost.post.uri
+            chainByRoot[rootURI] = (chain, lastFeedPost)
+            for post in chain { rootForURI[post.uri] = rootURI }
+        }
+
+        // Emit groups in feed order, anchored at the newest (first-encountered) post
+        var emittedRoots = Set<String>()
+        for feedPost in posts {
+            let uri = feedPost.post.uri
+            if let rootURI = rootForURI[uri], !emittedRoots.contains(rootURI),
+               let data = chainByRoot[rootURI] {
+                emittedRoots.insert(rootURI)
+                groups.append(FeedGroup(id: data.feedPost.post.uri, posts: data.chain, feedPost: data.feedPost))
+            }
+        }
+
+        return groups
     }
 
     var savedFeeds: [AppBskyLexicon.Feed.GeneratorViewDefinition] = []
@@ -87,6 +179,7 @@ final class AppState {
     var isLoadingSuggestedFeeds = false
 
     var showCompose = false
+    var showNewChat = false
     var replyContext: ReplyContext?
     var quoteTarget: AppBskyLexicon.Feed.PostViewDefinition?
 
@@ -111,6 +204,16 @@ final class AppState {
     var threadPost: AppBskyLexicon.Feed.PostViewDefinition?
     var threadReplies: [AppBskyLexicon.Feed.PostViewDefinition] = []
     var isLoadingThread = false
+
+    var conversations: [ChatBskyLexicon.Conversation.ConversationViewDefinition] = []
+    var conversationsCursor: String?
+    var isLoadingConversations = false
+    var currentConversation: ChatBskyLexicon.Conversation.ConversationViewDefinition?
+    var messages: [ChatBskyLexicon.Conversation.MessageViewDefinition] = []
+    var messagesCursor: String?
+    var isLoadingMessages = false
+    var isSendingMessage = false
+    var unreadChatCount: Int = 0
 
     var selectedImageURL: URL?
     // Tracks local like/repost state overrides before the server catches up
@@ -144,6 +247,7 @@ final class AppState {
 
             let kit = await ATProtoKit(sessionConfiguration: configuration)
             let bluesky = ATProtoBluesky(atProtoKitInstance: kit)
+            let chat = ATProtoBlueskyChat(atProtoKitInstance: kit)
 
             let session = try await kit.getUserSession()
             self.sessionDID = session?.sessionDID
@@ -151,6 +255,7 @@ final class AppState {
             self.config = configuration
             self.atProtoKit = kit
             self.atProtoBluesky = bluesky
+            self.atProtoChat = chat
             self.isAuthenticated = true
 
             // Persist session metadata (non-sensitive) for restoration
@@ -192,12 +297,14 @@ final class AppState {
 
             let kit = await ATProtoKit(sessionConfiguration: configuration)
             let bluesky = ATProtoBluesky(atProtoKitInstance: kit)
+            let chat = ATProtoBlueskyChat(atProtoKitInstance: kit)
 
             let session = try await kit.getUserSession()
             self.sessionDID = session?.sessionDID
             self.config = configuration
             self.atProtoKit = kit
             self.atProtoBluesky = bluesky
+            self.atProtoChat = chat
             self.isAuthenticated = true
 
             await loadFeed()
@@ -235,6 +342,7 @@ final class AppState {
         config = nil
         atProtoKit = nil
         atProtoBluesky = nil
+        atProtoChat = nil
         sessionDID = nil
         posts = []
         cursor = nil
@@ -249,6 +357,15 @@ final class AppState {
         threadPost = nil
         threadReplies = []
         isLoadingThread = false
+        conversations = []
+        conversationsCursor = nil
+        isLoadingConversations = false
+        currentConversation = nil
+        messages = []
+        messagesCursor = nil
+        isLoadingMessages = false
+        isSendingMessage = false
+        unreadChatCount = 0
         selectedImageURL = nil
         likeOverrides = [:]
         repostOverrides = [:]
@@ -281,17 +398,9 @@ final class AppState {
         isLoadingFeed = true
         feedError = nil
 
-        // Remember the first visible post so we can show an "unread" marker after refresh
+        // Remember the first visible group so we can show an "unread" marker after refresh
         if !loadMore {
-            lastSeenPostURI = posts.first(where: { feedPost in
-                // Skip replies to other people — those are filtered from the feed
-                if let reply = feedPost.reply,
-                   case .postView(let parent) = reply.parent,
-                   parent.author.actorDID != feedPost.post.author.actorDID {
-                    return false
-                }
-                return true
-            })?.post.uri
+            lastSeenPostURI = feedGroups.first?.id
         }
 
         // Clear optimistic overrides on full refresh — new posts carry fresh viewer state
@@ -346,6 +455,10 @@ final class AppState {
             notificationsCursor = nil
             await loadNotifications()
             await markNotificationsSeen()
+        case .chats:
+            conversations = []
+            conversationsCursor = nil
+            await loadConversations()
         default:
             posts = []
             cursor = nil
@@ -713,6 +826,141 @@ final class AppState {
         quoteTarget = nil
         showCompose = false
         await loadFeed()
+    }
+
+    // MARK: - Chat
+
+    func loadConversations(loadMore: Bool = false) async {
+        guard let chat = atProtoChat else { return }
+        if loadMore && conversationsCursor == nil { return }
+        if isLoadingConversations { return }
+
+        isLoadingConversations = true
+
+        do {
+            let cursor = loadMore ? conversationsCursor : nil
+            let result = try await chat.listConversations(limit: 50, cursor: cursor)
+            if loadMore {
+                conversations.append(contentsOf: result.conversations)
+            } else {
+                conversations = result.conversations
+            }
+            conversationsCursor = result.cursor
+            unreadChatCount = conversations.reduce(0) { $0 + $1.unreadCount }
+        } catch {
+            print("Failed to load conversations: \(error)")
+        }
+
+        isLoadingConversations = false
+    }
+
+    func openConversation(_ convo: ChatBskyLexicon.Conversation.ConversationViewDefinition) {
+        navigationStack.append(NavigationEntry(tab: selectedTab, profileDID: viewingProfileDID))
+        currentConversation = convo
+        messages = []
+        messagesCursor = nil
+        selectedTab = .conversation(id: convo.conversationID)
+        Task {
+            await loadMessages(conversationID: convo.conversationID)
+            await markConversationRead(conversationID: convo.conversationID)
+        }
+    }
+
+    func loadMessages(conversationID: String, loadMore: Bool = false) async {
+        guard let chat = atProtoChat else { return }
+        if isLoadingMessages { return }
+
+        isLoadingMessages = true
+
+        do {
+            let result = try await chat.getMessages(from: conversationID, limit: 50)
+            let newMessages = result.messages.compactMap { msg -> ChatBskyLexicon.Conversation.MessageViewDefinition? in
+                if case .messageView(let view) = msg { return view }
+                return nil
+            }
+            if loadMore {
+                messages.append(contentsOf: newMessages)
+            } else {
+                messages = newMessages
+            }
+            messagesCursor = result.cursor
+        } catch {
+            print("Failed to load messages: \(error)")
+        }
+
+        isLoadingMessages = false
+    }
+
+    func sendMessage(text: String, conversationID: String) async {
+        guard let chat = atProtoChat else { return }
+        if isSendingMessage { return }
+
+        isSendingMessage = true
+
+        do {
+            let input = ChatBskyLexicon.Conversation.MessageInputDefinition(
+                text: text,
+                facets: nil,
+                embed: nil
+            )
+            let sent = try await chat.sendMessage(to: conversationID, message: input)
+            messages.insert(sent, at: 0)
+        } catch {
+            print("Failed to send message: \(error)")
+        }
+
+        isSendingMessage = false
+    }
+
+    func markConversationRead(conversationID: String) async {
+        guard let chat = atProtoChat else { return }
+        do {
+            let result = try await chat.updateRead(from: conversationID)
+            // Update the local conversation entry with the returned conversation
+            if let index = conversations.firstIndex(where: { $0.conversationID == conversationID }) {
+                conversations[index] = result.conversationView
+            }
+            unreadChatCount = conversations.reduce(0) { $0 + $1.unreadCount }
+        } catch {
+            print("Failed to mark conversation read: \(error)")
+        }
+    }
+
+    func otherMember(
+        in convo: ChatBskyLexicon.Conversation.ConversationViewDefinition
+    ) -> ChatBskyLexicon.Actor.ProfileViewBasicDefinition? {
+        convo.members.first(where: { $0.actorDID != sessionDID })
+    }
+
+    func loadFollows() async -> [AppBskyLexicon.Actor.ProfileViewDefinition] {
+        guard let kit = atProtoKit, let did = sessionDID else { return [] }
+        var allFollows: [AppBskyLexicon.Actor.ProfileViewDefinition] = []
+        var cursor: String?
+
+        do {
+            repeat {
+                let result = try await kit.getFollows(from: did, limit: 100, cursor: cursor)
+                allFollows.append(contentsOf: result.follows)
+                cursor = result.cursor
+            } while cursor != nil
+        } catch {
+            print("Failed to load follows: \(error)")
+        }
+
+        return allFollows.sorted { ($0.displayName ?? $0.actorHandle) < ($1.displayName ?? $1.actorHandle) }
+    }
+
+    func startChat(with did: String) async {
+        guard let chat = atProtoChat else { return }
+
+        do {
+            let result = try await chat.getConversaionForMembers([did])
+            let convo = result.conversation
+            showNewChat = false
+            openConversation(convo)
+        } catch {
+            print("Failed to start chat: \(error)")
+        }
     }
 
     // MARK: - Helpers

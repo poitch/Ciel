@@ -84,6 +84,7 @@ struct PostRowView: View {
                                 .fill(.quaternary)
                         }
                     }
+                    .transaction { $0.animation = nil }
                     .frame(width: 40, height: 40)
                     .clipShape(Circle())
                 }
@@ -125,6 +126,8 @@ struct PostRowView: View {
 
                     actionBar
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .clipped()
             }
         }
         .padding(.horizontal, 16)
@@ -211,6 +214,7 @@ struct PostRowView: View {
                             .fill(.quaternary)
                     }
                 }
+                .transaction { $0.animation = nil }
                 .aspectRatio(ratio, contentMode: .fit)
                 .frame(maxHeight: 300)
                 .clipped()
@@ -236,6 +240,7 @@ struct PostRowView: View {
                                         .fill(.quaternary)
                                 }
                             }
+                            .transaction { $0.animation = nil }
                             .frame(width: geo.size.width, height: geo.size.height)
                         }
                         .frame(height: cellHeight)
@@ -271,7 +276,8 @@ struct PostRowView: View {
                             Rectangle().fill(.quaternary)
                         }
                     }
-                    .frame(maxHeight: 160)
+                    .transaction { $0.animation = nil }
+                    .frame(height: 160)
                     .clipped()
                 }
                 Text(external.title)
@@ -367,53 +373,59 @@ private struct VideoThumbnailView: View {
     }
 
     var body: some View {
-        if let player {
-            VideoPlayer(player: player)
-                .aspectRatio(aspectRatio, contentMode: .fit)
-                .frame(maxHeight: 300)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-                .onDisappear {
-                    player.pause()
-                    self.player = nil
-                }
-        } else {
-            Button {
-                if let url = URL(string: video.playlistURI) {
-                    let newPlayer = AVPlayer(url: url)
-                    player = newPlayer
-                    newPlayer.play()
-                }
-            } label: {
-                ZStack {
-                    if let thumbStr = video.thumbnailImageURL, let thumbURL = URL(string: thumbStr) {
-                        LazyImage(url: thumbURL) { state in
-                            if let image = state.image {
-                                image.resizable()
-                                    .aspectRatio(contentMode: .fill)
-                            } else {
-                                Rectangle().fill(.quaternary)
-                            }
-                        }
-                    } else {
-                        Rectangle().fill(.quaternary)
-                    }
+        GeometryReader { geo in
+            let width = geo.size.width
+            let height = min(width / aspectRatio, 300)
 
-                    Circle()
-                        .fill(.black.opacity(0.5))
-                        .frame(width: 50, height: 50)
-                        .overlay {
-                            Image(systemName: "play.fill")
-                                .font(.title2)
-                                .foregroundStyle(.white)
-                                .offset(x: 2)
+            if let player {
+                VideoPlayer(player: player)
+                    .frame(width: width, height: height)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .onDisappear {
+                        self.player?.pause()
+                        self.player = nil
+                    }
+            } else {
+                Button {
+                    if let url = URL(string: video.playlistURI) {
+                        let newPlayer = AVPlayer(url: url)
+                        player = newPlayer
+                        newPlayer.play()
+                    }
+                } label: {
+                    ZStack {
+                        if let thumbStr = video.thumbnailImageURL, let thumbURL = URL(string: thumbStr) {
+                            LazyImage(url: thumbURL) { state in
+                                if let image = state.image {
+                                    image.resizable()
+                                        .aspectRatio(contentMode: .fill)
+                                } else {
+                                    Rectangle().fill(.quaternary)
+                                }
+                            }
+                            .transaction { $0.animation = nil }
+                        } else {
+                            Rectangle().fill(.quaternary)
                         }
+
+                        Circle()
+                            .fill(.black.opacity(0.5))
+                            .frame(width: 50, height: 50)
+                            .overlay {
+                                Image(systemName: "play.fill")
+                                    .font(.title2)
+                                    .foregroundStyle(.white)
+                                    .offset(x: 2)
+                            }
+                    }
+                    .frame(width: width, height: height)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
                 }
-                .aspectRatio(aspectRatio, contentMode: .fit)
-                .frame(maxHeight: 300)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
         }
+        .aspectRatio(aspectRatio, contentMode: .fit)
+        .frame(maxHeight: 300)
     }
 }
 

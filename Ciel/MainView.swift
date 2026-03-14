@@ -43,6 +43,20 @@ struct MainView: View {
                 }
                 .tag(FeedTab.notifications)
 
+                HStack {
+                    Label("Chats", systemImage: "bubble.left.and.bubble.right")
+                    Spacer()
+                    if appState.unreadChatCount > 0 {
+                        Text("\(appState.unreadChatCount)")
+                            .font(.caption2.weight(.bold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.accentColor, in: Capsule())
+                    }
+                }
+                .tag(FeedTab.chats)
+
                 if !appState.savedFeeds.isEmpty {
                     Section("My Feeds") {
                         ForEach(appState.savedFeeds, id: \.feedURI) { feed in
@@ -62,10 +76,10 @@ struct MainView: View {
                 }
 
                 Section {
-                    Button(action: { showSignOutConfirmation = true }) {
+                    Button(action: { showSignOutConfirmation = true }, label: {
                         Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
                             .foregroundStyle(.secondary)
-                    }
+                    })
                     .buttonStyle(.plain)
                 }
             }
@@ -89,19 +103,42 @@ struct MainView: View {
                 if case .thread = appState.selectedTab {
                     ThreadView()
                 }
+
+                if appState.selectedTab == .chats {
+                    ChatsView()
+                }
+
+                if case .conversation = appState.selectedTab {
+                    ConversationView()
+                }
             }
         }
         .toolbar {
             ToolbarItem(placement: .automatic) {
-                Button(action: {
-                    appState.replyContext = nil
-                    appState.quoteTarget = nil
-                    appState.showCompose = true
-                }) {
-                    Image(systemName: "square.and.pencil")
+                let isChatTab = appState.selectedTab == .chats || {
+                    if case .conversation = appState.selectedTab { return true }
+                    return false
+                }()
+
+                if isChatTab {
+                    Button(action: {
+                        appState.showNewChat = true
+                    }, label: {
+                        Image(systemName: "plus.message")
+                    })
+                    .help("New Chat")
+                    .keyboardShortcut("n", modifiers: .command)
+                } else {
+                    Button(action: {
+                        appState.replyContext = nil
+                        appState.quoteTarget = nil
+                        appState.showCompose = true
+                    }, label: {
+                        Image(systemName: "square.and.pencil")
+                    })
+                    .help("New Post")
+                    .keyboardShortcut("n", modifiers: .command)
                 }
-                .help("New Post")
-                .keyboardShortcut("n", modifiers: .command)
             }
 
             ToolbarItem(placement: .automatic) {
@@ -115,19 +152,26 @@ struct MainView: View {
                             await appState.markNotificationsSeen()
                         case .thread(let uri):
                             await appState.loadThread(uri: uri)
+                        case .chats:
+                            await appState.loadConversations()
+                        case .conversation(let id):
+                            await appState.loadMessages(conversationID: id)
                         default:
                             await appState.loadFeed()
                         }
                     }
-                }) {
+                }, label: {
                     Image(systemName: "arrow.clockwise")
-                }
+                })
                 .help("Refresh")
                 .keyboardShortcut("r", modifiers: .command)
             }
         }
         .sheet(isPresented: $state.showCompose) {
             ComposeView()
+        }
+        .sheet(isPresented: $state.showNewChat) {
+            NewChatView()
         }
         .sheet(item: $state.selectedImageURL) { url in
             ImageViewerSheet(url: url)
