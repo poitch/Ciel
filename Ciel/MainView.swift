@@ -76,10 +76,10 @@ struct MainView: View {
                 }
 
                 Section {
-                    Button(action: { showSignOutConfirmation = true }) {
+                    Button(action: { showSignOutConfirmation = true }, label: {
                         Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
                             .foregroundStyle(.secondary)
-                    }
+                    })
                     .buttonStyle(.plain)
                 }
             }
@@ -123,9 +123,9 @@ struct MainView: View {
                 if isChatTab {
                     Button(action: {
                         appState.showNewChat = true
-                    }) {
+                    }, label: {
                         Image(systemName: "plus.message")
-                    }
+                    })
                     .help("New Chat")
                     .keyboardShortcut("n", modifiers: .command)
                 } else {
@@ -133,9 +133,9 @@ struct MainView: View {
                         appState.replyContext = nil
                         appState.quoteTarget = nil
                         appState.showCompose = true
-                    }) {
+                    }, label: {
                         Image(systemName: "square.and.pencil")
-                    }
+                    })
                     .help("New Post")
                     .keyboardShortcut("n", modifiers: .command)
                 }
@@ -160,9 +160,9 @@ struct MainView: View {
                             await appState.loadFeed()
                         }
                     }
-                }) {
+                }, label: {
                     Image(systemName: "arrow.clockwise")
-                }
+                })
                 .help("Refresh")
                 .keyboardShortcut("r", modifiers: .command)
             }

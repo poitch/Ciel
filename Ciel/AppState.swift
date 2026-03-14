@@ -926,14 +926,16 @@ final class AppState {
         }
     }
 
-    func otherMember(in convo: ChatBskyLexicon.Conversation.ConversationViewDefinition) -> ChatBskyLexicon.Actor.ProfileViewBasicDefinition? {
+    func otherMember(
+        in convo: ChatBskyLexicon.Conversation.ConversationViewDefinition
+    ) -> ChatBskyLexicon.Actor.ProfileViewBasicDefinition? {
         convo.members.first(where: { $0.actorDID != sessionDID })
     }
 
     func loadFollows() async -> [AppBskyLexicon.Actor.ProfileViewDefinition] {
         guard let kit = atProtoKit, let did = sessionDID else { return [] }
         var allFollows: [AppBskyLexicon.Actor.ProfileViewDefinition] = []
-        var cursor: String? = nil
+        var cursor: String?
 
         do {
             repeat {

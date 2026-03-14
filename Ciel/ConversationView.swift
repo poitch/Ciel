@@ -27,9 +27,9 @@ struct ConversationView: View {
         .toolbar {
             if appState.canGoBack {
                 ToolbarItem(placement: .navigation) {
-                    Button(action: { appState.goBack() }) {
+                    Button(action: { appState.goBack() }, label: {
                         Label("Back", systemImage: "chevron.left")
-                    }
+                    })
                     .help("Back")
                 }
             }
