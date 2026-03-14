@@ -1,5 +1,6 @@
 import SwiftUI
 import ATProtoKit
+import NukeUI
 
 struct NotificationsView: View {
     @Environment(AppState.self) private var appState
@@ -101,11 +102,13 @@ struct NotificationRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             Button { appState.viewProfile(did: notification.author.actorDID) } label: {
-                AsyncImage(url: notification.author.avatarImageURL) { image in
-                    image.resizable()
-                        .aspectRatio(contentMode: .fill)
-                } placeholder: {
-                    Circle().fill(.quaternary)
+                LazyImage(url: notification.author.avatarImageURL) { state in
+                    if let image = state.image {
+                        image.resizable()
+                            .aspectRatio(contentMode: .fill)
+                    } else {
+                        Circle().fill(.quaternary)
+                    }
                 }
                 .frame(width: 36, height: 36)
                 .clipShape(Circle())

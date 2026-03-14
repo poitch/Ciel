@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		02B208702F5F724800FB6170 /* ATProtoKit in Frameworks */ = {isa = PBXBuildFile; productRef = 02B2086F2F5F724800FB6170 /* ATProtoKit */; };
+		02NUKE012F60000000000001 /* NukeUI in Frameworks */ = {isa = PBXBuildFile; productRef = 02NUKE002F60000000000001 /* NukeUI */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -57,6 +58,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				02B208702F5F724800FB6170 /* ATProtoKit in Frameworks */,
+				02NUKE012F60000000000001 /* NukeUI in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -118,6 +120,7 @@
 			name = Ciel;
 			packageProductDependencies = (
 				02B2086F2F5F724800FB6170 /* ATProtoKit */,
+				02NUKE002F60000000000001 /* NukeUI */,
 			);
 			productName = Ciel;
 			productReference = 0218681B2F5F478700A7AABA /* Ciel.app */;
@@ -203,6 +206,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				02B2086E2F5F724800FB6170 /* XCRemoteSwiftPackageReference "ATProtoKit" */,
+				02NUKE0E2F60000000000001 /* XCRemoteSwiftPackageReference "Nuke" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 0218681C2F5F478700A7AABA /* Products */;
@@ -594,6 +598,14 @@
 				minimumVersion = 0.32.5;
 			};
 		};
+		02NUKE0E2F60000000000001 /* XCRemoteSwiftPackageReference "Nuke" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/kean/Nuke.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 12.0.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -601,6 +613,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 02B2086E2F5F724800FB6170 /* XCRemoteSwiftPackageReference "ATProtoKit" */;
 			productName = ATProtoKit;
+		};
+		02NUKE002F60000000000001 /* NukeUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 02NUKE0E2F60000000000001 /* XCRemoteSwiftPackageReference "Nuke" */;
+			productName = NukeUI;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

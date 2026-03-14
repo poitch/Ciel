@@ -36,7 +36,9 @@ struct ThreadView: View {
                             )
                             .background(Color.accentColor.opacity(0.05))
 
-                            Divider()
+                            ThreadPostDetails(post: mainPost)
+
+                            ThreadReplySeparator(replyCount: mainPost.replyCount ?? 0)
                         }
 
                         // Replies
@@ -63,6 +65,130 @@ struct ThreadView: View {
                     .help("Back")
                 }
             }
+        }
+    }
+}
+
+// MARK: - Thread Post Details
+
+private struct ThreadPostDetails: View {
+    let post: AppBskyLexicon.Feed.PostViewDefinition
+
+    private static let fullDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "h:mm a · MMM d, yyyy"
+        return f
+    }()
+
+    private var threadgateRecord: AppBskyLexicon.Feed.ThreadgateRecord? {
+        post.threadgate?.record.getRecord(ofType: AppBskyLexicon.Feed.ThreadgateRecord.self)
+    }
+
+    private enum ReplyRestriction {
+        case disabled
+        case limitedTo(String)
+    }
+
+    private var replyRestriction: ReplyRestriction? {
+        guard let rules = threadgateRecord?.allow else { return nil }
+        if rules.isEmpty { return .disabled }
+
+        var parts: [String] = []
+        for rule in rules {
+            switch rule {
+            case .mentionRule:
+                parts.append("mentioned users")
+            case .followerRule:
+                parts.append("followers")
+            case .followingRule:
+                parts.append("people you follow")
+            case .listRule:
+                parts.append("list members")
+            case .unknown:
+                break
+            }
+        }
+        if parts.isEmpty { return nil }
+        return .limitedTo(parts.joined(separator: ", "))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(Self.fullDateFormatter.string(from: post.indexedAt))
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            if let restriction = replyRestriction {
+                HStack(spacing: 4) {
+                    Image(systemName: "person.2.circle")
+                        .font(.subheadline)
+                    switch restriction {
+                    case .disabled:
+                        Text("Replies disabled")
+                            .font(.subheadline)
+                    case .limitedTo(let who):
+                        Text("Replies limited to \(who)")
+                            .font(.subheadline)
+                    }
+                }
+                .foregroundStyle(.secondary)
+            }
+
+            HStack(spacing: 16) {
+                if let reposts = post.repostCount, reposts > 0 {
+                    statLabel(count: reposts, label: reposts == 1 ? "repost" : "reposts")
+                }
+                if let quotes = post.quoteCount, quotes > 0 {
+                    statLabel(count: quotes, label: quotes == 1 ? "quote" : "quotes")
+                }
+                if let likes = post.likeCount, likes > 0 {
+                    statLabel(count: likes, label: likes == 1 ? "like" : "likes")
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+    }
+
+    private func statLabel(count: Int, label: String) -> some View {
+        HStack(spacing: 3) {
+            Text("\(count)")
+                .fontWeight(.semibold)
+            Text(label)
+                .foregroundStyle(.secondary)
+        }
+        .font(.subheadline)
+    }
+}
+
+// MARK: - Reply Separator
+
+private struct ThreadReplySeparator: View {
+    let replyCount: Int
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Rectangle()
+                .fill(.separator)
+                .frame(height: 1)
+
+            HStack {
+                if replyCount > 0 {
+                    Text(replyCount == 1 ? "1 reply" : "\(replyCount) replies")
+                        .font(.subheadline.weight(.semibold))
+                } else {
+                    Text("Replies")
+                        .font(.subheadline.weight(.semibold))
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(Color.primary.opacity(0.03))
+
+            Rectangle()
+                .fill(.separator)
+                .frame(height: 1)
         }
     }
 }

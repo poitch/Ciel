@@ -106,21 +106,32 @@ struct FeedView: View {
                 )
             } else {
                 ScrollView {
+                    let parentURIs = appState.feedParentURIs
+                    let lastSeenURI = appState.lastSeenPostURI
                     LazyVStack(spacing: 0) {
                         ForEach(Array(zip(appState.posts.indices, appState.posts)), id: \.1.post.uri) { index, feedPost in
-                            if index > 0, feedPost.post.uri == appState.lastSeenPostURI {
-                                UnreadMarker()
+                            // Skip standalone posts already shown as a thread parent
+                            if !parentURIs.contains(feedPost.post.uri) || feedPost.reply != nil {
+                                if let reply = feedPost.reply,
+                                   case .postView(let parent) = reply.parent {
+                                    if parent.author.actorDID == feedPost.post.author.actorDID {
+                                        // Self-thread: same author replied to their own post
+                                        if index > 0, lastSeenURI != nil, feedPost.post.uri == lastSeenURI || parent.uri == lastSeenURI {
+                                            UnreadMarker()
+                                        }
+                                        PostRowView(post: parent, showThreadLineBelow: true)
+                                        PostRowView(feedPost: feedPost, showThreadLineAbove: true)
+                                        Divider()
+                                    }
+                                    // Otherwise skip: reply to someone else's post doesn't belong in feed
+                                } else {
+                                    if index > 0, lastSeenURI != nil, feedPost.post.uri == lastSeenURI {
+                                        UnreadMarker()
+                                    }
+                                    PostRowView(feedPost: feedPost)
+                                    Divider()
+                                }
                             }
-
-                            if let reply = feedPost.reply,
-                               case .postView(let parent) = reply.parent {
-                                PostRowView(post: parent, showThreadLineBelow: true)
-                                PostRowView(feedPost: feedPost, showThreadLineAbove: true)
-                            } else {
-                                PostRowView(feedPost: feedPost)
-                            }
-
-                            Divider()
 
                             if index == appState.posts.count - 5 {
                                 Color.clear
