@@ -99,31 +99,46 @@ final class AppState {
             }
         }
 
-        // Track which URIs are part of a self-thread parent shown inline
+        // Walk each self-thread chain from root to leaf, keyed by root URI
+        // so we can emit the group at the position of the newest (first-encountered) post
+        var chainByRoot: [String: (chain: [AppBskyLexicon.Feed.PostViewDefinition],
+                                    feedPost: AppBskyLexicon.Feed.FeedViewPostDefinition)] = [:]
+        var rootForURI: [String: String] = [:] // maps any chain member URI → root URI
         var consumed = Set<String>()
         var groups: [FeedGroup] = []
 
+        // Pre-build chains starting from root posts
         for feedPost in posts {
             if consumed.contains(feedPost.post.uri) { continue }
 
-            // Check if this is a reply to someone else — skip it
+            // Skip replies to other people
             if let reply = feedPost.reply,
                case .postView(let parent) = reply.parent,
                parent.author.actorDID != feedPost.post.author.actorDID {
                 continue
             }
 
-            // Check if this is a self-thread reply whose parent is already in the feed
+            // Skip self-thread replies whose parent is in the feed (will be consumed by root)
             if let reply = feedPost.reply,
                case .postView(let parent) = reply.parent,
                parent.author.actorDID == feedPost.post.author.actorDID,
                postURIs.contains(parent.uri) {
-                // This will be consumed as part of the parent's chain
                 continue
             }
 
-            // Build a chain starting from this post using the child lookup
-            var chain = [feedPost.post]
+            // This is a root post (or a self-thread reply whose parent isn't in the feed)
+            var chain: [AppBskyLexicon.Feed.PostViewDefinition] = []
+
+            // If this is a self-thread reply whose parent isn't in the feed,
+            // include the parent from the reply data for context
+            if let reply = feedPost.reply,
+               case .postView(let parent) = reply.parent,
+               parent.author.actorDID == feedPost.post.author.actorDID,
+               !postURIs.contains(parent.uri) {
+                chain.append(parent)
+            }
+
+            chain.append(feedPost.post)
             var lastFeedPost = feedPost
             consumed.insert(feedPost.post.uri)
 
@@ -138,7 +153,20 @@ final class AppState {
                 lastFeedPost = nextFeedPost
             }
 
-            groups.append(FeedGroup(id: lastFeedPost.post.uri, posts: chain, feedPost: lastFeedPost))
+            let rootURI = feedPost.post.uri
+            chainByRoot[rootURI] = (chain, lastFeedPost)
+            for post in chain { rootForURI[post.uri] = rootURI }
+        }
+
+        // Emit groups in feed order, anchored at the newest (first-encountered) post
+        var emittedRoots = Set<String>()
+        for feedPost in posts {
+            let uri = feedPost.post.uri
+            if let rootURI = rootForURI[uri], !emittedRoots.contains(rootURI),
+               let data = chainByRoot[rootURI] {
+                emittedRoots.insert(rootURI)
+                groups.append(FeedGroup(id: data.feedPost.post.uri, posts: data.chain, feedPost: data.feedPost))
+            }
         }
 
         return groups
@@ -887,11 +915,12 @@ final class AppState {
     func markConversationRead(conversationID: String) async {
         guard let chat = atProtoChat else { return }
         do {
-            _ = try await chat.updateRead(from: conversationID)
+            let result = try await chat.updateRead(from: conversationID)
+            // Update the local conversation entry with the returned conversation
             if let index = conversations.firstIndex(where: { $0.conversationID == conversationID }) {
-                let old = conversations[index]
-                unreadChatCount -= old.unreadCount
+                conversations[index] = result.conversationView
             }
+            unreadChatCount = conversations.reduce(0) { $0 + $1.unreadCount }
         } catch {
             print("Failed to mark conversation read: \(error)")
         }

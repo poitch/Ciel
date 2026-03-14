@@ -103,7 +103,7 @@ struct NewChatView: View {
 
     private func startChat(with follow: AppBskyLexicon.Actor.ProfileViewDefinition) {
         startingChatDID = follow.actorDID
-        Task {
+        Task { @MainActor in
             await appState.startChat(with: follow.actorDID)
             startingChatDID = nil
         }
