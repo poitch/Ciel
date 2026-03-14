@@ -106,34 +106,43 @@ struct FeedView: View {
                 )
             } else {
                 ScrollView {
-                    let parentURIs = appState.feedParentURIs
+                    let groups = appState.feedGroups
                     let lastSeenURI = appState.lastSeenPostURI
                     LazyVStack(spacing: 0) {
-                        ForEach(Array(zip(appState.posts.indices, appState.posts)), id: \.1.post.uri) { index, feedPost in
-                            // Skip standalone posts already shown as a thread parent
-                            if !parentURIs.contains(feedPost.post.uri) || feedPost.reply != nil {
-                                if let reply = feedPost.reply,
-                                   case .postView(let parent) = reply.parent {
-                                    if parent.author.actorDID == feedPost.post.author.actorDID {
-                                        // Self-thread: same author replied to their own post
-                                        if index > 0, lastSeenURI != nil, feedPost.post.uri == lastSeenURI || parent.uri == lastSeenURI {
-                                            UnreadMarker()
-                                        }
-                                        PostRowView(post: parent, showThreadLineBelow: true)
-                                        PostRowView(feedPost: feedPost, showThreadLineAbove: true)
-                                        Divider()
+                        ForEach(Array(zip(groups.indices, groups)), id: \.1.id) { groupIndex, group in
+                            if groupIndex > 0, lastSeenURI != nil, group.id == lastSeenURI {
+                                UnreadMarker()
+                            }
+
+                            if group.posts.count == 1 {
+                                PostRowView(feedPost: group.feedPost)
+                            } else {
+                                ForEach(Array(group.posts.enumerated()), id: \.element.uri) { postIndex, post in
+                                    let isFirst = postIndex == 0
+                                    let isLast = postIndex == group.posts.count - 1
+                                    if isLast {
+                                        PostRowView(
+                                            feedPost: group.feedPost,
+                                            showThreadLineAbove: true
+                                        )
+                                    } else if isFirst {
+                                        PostRowView(
+                                            post: post,
+                                            showThreadLineBelow: true
+                                        )
+                                    } else {
+                                        PostRowView(
+                                            post: post,
+                                            showThreadLineAbove: true,
+                                            showThreadLineBelow: true
+                                        )
                                     }
-                                    // Otherwise skip: reply to someone else's post doesn't belong in feed
-                                } else {
-                                    if index > 0, lastSeenURI != nil, feedPost.post.uri == lastSeenURI {
-                                        UnreadMarker()
-                                    }
-                                    PostRowView(feedPost: feedPost)
-                                    Divider()
                                 }
                             }
 
-                            if index == appState.posts.count - 5 {
+                            Divider()
+
+                            if groupIndex == groups.count - 5 {
                                 Color.clear
                                     .frame(height: 1)
                                     .onAppear {
